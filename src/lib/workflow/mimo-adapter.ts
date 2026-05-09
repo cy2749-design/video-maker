@@ -95,9 +95,10 @@ function stripJsonFence(content: string) {
 }
 
 function normalizeMimoModel(model: string) {
-  if (model === "mimo-2.5-pro") return "mimo-v2.5-pro";
-  if (model === "mimo-2.5") return "mimo-v2.5";
-  return model;
+  const cleanModel = model.trim();
+  if (cleanModel === "mimo-2.5-pro") return "mimo-v2.5-pro";
+  if (cleanModel === "mimo-2.5") return "mimo-v2.5";
+  return cleanModel;
 }
 
 function stageContract(stage: WorkflowStage) {
