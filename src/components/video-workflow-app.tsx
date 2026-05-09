@@ -67,7 +67,7 @@ const stageLabels: Record<WorkflowStage, string> = {
 
 const stageDescriptions: Record<WorkflowStage, string> = {
   content_understanding: "内部步骤，不在用户流程中展示。",
-  video_plan: "把原始想法扩展成可拍的核心创意、关键画面、角色场景和节奏方案。",
+  video_plan: "先给出几个候选创意方向，由你选择一个进入后续脚本和镜头规划。",
   script: "把视频方案拆成可以给视频模型理解的分段表达。",
   shot_list: "把脚本拆成具体镜头。镜头只用于规划，不直接生成视频。",
   scene_blocks: "把连续镜头合并成 5-15 秒的视频生成单位。",
@@ -643,8 +643,16 @@ function VideoPlanReview({ bundle, record, reload }: { bundle: JobBundle; record
     const approvedPlan: VideoPlan = {
       ...plan,
       decision_status: "approved",
+      video_title: variation.name,
       core_idea: variation.description,
+      creative_expansion: [variation.description, variation.why_it_works],
       selected_concept: `${variation.name}：${variation.description}`,
+      key_visual_moments: [],
+      character_and_setting: "",
+      narrative_structure: [],
+      visual_direction: "",
+      audio_direction: "",
+      generation_notes: [],
     };
     try {
       await api(`/api/jobs/${bundle.job.id}/stage-output`, {
@@ -673,12 +681,6 @@ function VideoPlanReview({ bundle, record, reload }: { bundle: JobBundle; record
         </button>
       </div>
 
-      <div className="rounded-md border border-stone-200 bg-stone-50 p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">推荐摘要</p>
-        <h3 className="mt-2 text-xl font-semibold text-stone-950">{plan.video_title}</h3>
-        <p className="mt-2 text-sm leading-6 text-stone-700">{plan.core_idea}</p>
-      </div>
-
       <div className="grid gap-3 xl:grid-cols-3">
         {plan.concept_variations.map((variation, index) => {
           const active = approved ? plan.selected_concept.includes(variation.name) : selectedIndex === index;
@@ -701,13 +703,6 @@ function VideoPlanReview({ bundle, record, reload }: { bundle: JobBundle; record
         })}
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <SummaryBlock title="剧情结构" items={plan.narrative_structure.map((part) => `${part.part} / ${part.duration_seconds}s：${part.goal}`)} />
-        <SummaryBlock title="关键画面" items={plan.key_visual_moments} />
-        <SummaryBlock title="视觉方向" items={[plan.visual_direction]} />
-        <SummaryBlock title="生成注意事项" items={plan.generation_notes} />
-      </div>
-
       {saveState ? <p className="text-sm text-stone-500">{saveState}</p> : null}
       <button className={primaryButton} onClick={approveConcept} disabled={approved}>
         <CheckCircle2 className="size-4" />
@@ -715,25 +710,6 @@ function VideoPlanReview({ bundle, record, reload }: { bundle: JobBundle; record
       </button>
 
       {showJson ? <JsonLarge value={plan} /> : null}
-    </div>
-  );
-}
-
-function SummaryBlock({ title, items }: { title: string; items: string[] }) {
-  return (
-    <div className="rounded-md border border-stone-200 bg-white p-4">
-      <p className="text-sm font-semibold text-stone-900">{title}</p>
-      <div className="mt-3 space-y-2">
-        {items.length === 0 ? (
-          <p className="text-sm text-stone-500">暂无内容</p>
-        ) : (
-          items.map((item, index) => (
-            <p key={`${title}-${index}`} className="text-sm leading-6 text-stone-600">
-              {item}
-            </p>
-          ))
-        )}
-      </div>
     </div>
   );
 }

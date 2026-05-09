@@ -1,7 +1,7 @@
 import { nowIso } from "@/lib/utils";
 import { stageSchemas, type PromptVersion, type WorkflowStage } from "./types";
 
-export const defaultPromptVersionSuffix = "v6";
+export const defaultPromptVersionSuffix = "v7";
 
 type PromptNode = {
   promptId: PromptVersion["promptId"];
@@ -71,20 +71,18 @@ Return this JSON shape:
     title: "Creative Video Plan Prompt",
     systemInstruction: `
 You are a short-form video creative director and concept developer.
-This is the first visible planning step. Turn the extracted idea into a clear, filmable concept that a later script, storyboard, keyframe prompt, and video prompt can all follow.
+This is the first visible decision step. Give the user a small set of clear concept options. Do not develop detailed story structure, key visuals, visual direction, or generation constraints yet.
 
 Do:
 - Expand the premise into a playable situation with character behavior, visual progression, escalation, and a memorable payoff.
 - Provide 2-3 meaningfully different concept variations for the user to choose from.
-- Define stable continuity anchors: main subject, setting, props, wardrobe/appearance style, lighting, and recurring visual motifs.
-- Name key visual moments that must appear later; make them specific enough to become shots.
-- Divide the primary recommended direction into hook, development, and ending with durations that add up to target_duration_seconds, but do not mark it approved.
-- Make visual_direction and audio_direction concrete: camera mood, pacing, sound texture, narration style, and whether the piece uses dialogue, voiceover, or ambient sound.
+- Keep each option self-contained: what happens on screen and why it works.
+- Keep core_idea as a neutral summary of the user's premise, not a selected or recommended option.
 
 Do not:
 - Repeat intake labels such as target_viewer, content_intent, raw summary, or risk labels.
 - Give a generic "AI efficiency" or "brand story" plan when the raw idea contains a more specific angle.
-- Create exact shot ids or video-generation prompts yet.
+- Create story structure, key visual moments, exact shot ids, visual direction, audio direction, generation notes, or video-generation prompts yet.
 - Normalize strange premises into ordinary corporate videos; stylize them when needed.
 - Choose for the user. Leave selected_concept as an empty string and decision_status as "needs_user_selection".
 
@@ -104,12 +102,8 @@ Return this JSON shape:
   "aspect_ratio": "9:16",
   "visual_style": "现实短视频",
   "decision_status": "needs_user_selection",
-  "core_idea": "recommended direction in one strong, filmable sentence, not yet user-approved",
-  "creative_expansion": [
-    "specific expansion of the premise into a visible situation",
-    "specific escalation or contrast that makes the middle worth watching",
-    "specific payoff, reveal, or memory hook"
-  ],
+  "core_idea": "neutral one-sentence premise summary, not a selected option",
+  "creative_expansion": [],
   "concept_variations": [
     {
       "name": "concept option name",
@@ -118,16 +112,12 @@ Return this JSON shape:
     }
   ],
   "selected_concept": "",
-  "key_visual_moments": ["must-show visual moment 1", "must-show visual moment 2"],
-  "character_and_setting": "main subject, environment, props, look, lighting, and continuity anchors",
-  "narrative_structure": [
-    {"part": "hook", "goal": "what the opening must accomplish", "duration_seconds": 5},
-    {"part": "development", "goal": "what the middle develops", "duration_seconds": 30},
-    {"part": "ending", "goal": "what the ending leaves behind", "duration_seconds": 10}
-  ],
-  "visual_direction": "overall visual approach with camera, pacing, lighting, and composition constraints",
-  "audio_direction": "voice, sound, rhythm, music/ambience, and silence beats",
-  "generation_notes": ["specific constraint later image/video prompts must preserve"]
+  "key_visual_moments": [],
+  "character_and_setting": "",
+  "narrative_structure": [],
+  "visual_direction": "",
+  "audio_direction": "",
+  "generation_notes": []
 }
 `.trim(),
     variables: ["contentUnderstanding", "settings"],
@@ -392,7 +382,7 @@ export function createDefaultPromptVersions(): PromptVersion[] {
     userPromptTemplate: node.userPromptTemplate,
     variables: node.variables,
     outputSchema: node.outputSchema,
-    changeNote: "Creative-plan V6 user-selection contract",
+    changeNote: "Creative-plan V7 concept-options-only contract",
     createdAt: nowIso(),
     createdBy: "system",
   }));

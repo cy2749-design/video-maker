@@ -185,7 +185,7 @@ function stageContract(stage: WorkflowStage) {
     content_understanding:
       'Output keys: raw_input_summary string, core_message string, content_intent string, target_viewer string, tone string, key_points string[], creative_risk string[].',
     video_plan:
-      'Output keys: video_title string, target_duration_seconds number, aspect_ratio string, visual_style string, core_idea string, creative_expansion string[], concept_variations array of {name, description, why_it_works}, selected_concept string, key_visual_moments string[], character_and_setting string, narrative_structure array of {part, goal, duration_seconds}, visual_direction string, audio_direction string, generation_notes string[].',
+      'Output keys: video_title string, target_duration_seconds number, aspect_ratio string, visual_style string, decision_status "needs_user_selection", core_idea string, creative_expansion empty array, concept_variations array of {name, description, why_it_works}, selected_concept empty string, key_visual_moments empty array, character_and_setting empty string, narrative_structure empty array, visual_direction empty string, audio_direction empty string, generation_notes empty array.',
     script:
       'Output keys: title string, target_duration_seconds number, script_sections array of {section_id, section_type, duration_seconds, narration_intent, spoken_content, visual_intent}.',
     shot_list:
