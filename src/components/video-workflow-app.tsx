@@ -5,6 +5,7 @@ import {
   Braces,
   CheckCircle2,
   Clapperboard,
+  Trash2,
   FileJson,
   Film,
   Image as ImageIcon,
@@ -20,6 +21,8 @@ import { useEffect, useMemo, useState, type ComponentType } from "react";
 import { cn } from "@/lib/utils";
 import {
   aspectRatios,
+  videoLanguageLabels,
+  videoLanguages,
   visualStyles,
   workflowStages,
   type JobBundle,
@@ -124,6 +127,20 @@ export function VideoWorkflowApp() {
     setPrompts(data.prompts);
   }
 
+  async function deleteCurrentJob(jobId: string) {
+    setBusy(`delete-${jobId}`);
+    setError(null);
+    try {
+      await api(`/api/jobs/${jobId}`, { method: "DELETE" });
+      if (bundle?.job.id === jobId) setBundle(null);
+      await loadJobs();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete job failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadJobs().catch((err) => setError(err.message));
@@ -201,7 +218,15 @@ export function VideoWorkflowApp() {
 
         <section className="grid flex-1 gap-5 px-5 py-5 lg:grid-cols-[280px_minmax(0,1fr)]">
           <aside className="space-y-4">
-            <JobContext bundle={bundle} jobs={jobs} loadBundle={loadBundle} loadJobs={loadJobs} setBundle={setBundle} />
+            <JobContext
+              bundle={bundle}
+              jobs={jobs}
+              loadBundle={loadBundle}
+              loadJobs={loadJobs}
+              setBundle={setBundle}
+              deleteJob={deleteCurrentJob}
+              busy={busy}
+            />
           </aside>
 
           {view === "workflow" ? (
@@ -231,12 +256,16 @@ function JobContext({
   loadBundle,
   loadJobs,
   setBundle,
+  deleteJob,
+  busy,
 }: {
   bundle: JobBundle | null;
   jobs: JobListItem[];
   loadBundle: (id: string) => Promise<void>;
   loadJobs: () => Promise<void>;
   setBundle: (bundle: JobBundle | null) => void;
+  deleteJob: (jobId: string) => Promise<void>;
+  busy: string | null;
 }) {
   return (
     <>
@@ -251,9 +280,15 @@ function JobContext({
               <span>{bundle.job.visualStyle}</span>
               <span>{bundle.storageMode}</span>
             </div>
-            <button className="mt-4 h-9 rounded-md border border-stone-200 px-3 text-sm text-stone-700 hover:bg-stone-50" onClick={() => setBundle(null)}>
-              新建另一个任务
-            </button>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button className="h-9 rounded-md border border-stone-200 px-3 text-sm text-stone-700 hover:bg-stone-50" onClick={() => setBundle(null)}>
+                新建另一个任务
+              </button>
+              <button className="inline-flex h-9 items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 text-sm text-red-700 hover:bg-red-100" onClick={() => deleteJob(bundle.job.id)} disabled={busy === `delete-${bundle.job.id}`}>
+                {busy === `delete-${bundle.job.id}` ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                删除
+              </button>
+            </div>
           </div>
         ) : (
           <p className="mt-3 text-sm leading-6 text-stone-500">
@@ -274,20 +309,29 @@ function JobContext({
             <p className="text-sm text-stone-500">暂无历史任务。</p>
           ) : (
             jobs.slice(0, 8).map((job) => (
-              <button
+              <div
                 key={job.id}
                 className={cn(
-                  "w-full rounded-md border p-3 text-left transition",
+                  "rounded-md border p-3 transition",
                   bundle?.job.id === job.id ? "border-stone-900 bg-stone-50" : "border-stone-200 bg-white hover:bg-stone-50",
                 )}
-                onClick={() => loadBundle(job.id)}
               >
-                <p className="line-clamp-2 text-sm font-medium text-stone-800">{job.rawIdea}</p>
-                <div className="mt-2 flex items-center justify-between text-xs text-stone-500">
-                  <span>{job.targetDurationSeconds}s · {job.aspectRatio}</span>
-                  <StatusBadge status={job.status} />
-                </div>
-              </button>
+                <button className="w-full text-left" onClick={() => loadBundle(job.id)}>
+                  <p className="line-clamp-2 text-sm font-medium text-stone-800">{job.rawIdea}</p>
+                  <div className="mt-2 flex items-center justify-between text-xs text-stone-500">
+                    <span>{job.targetDurationSeconds}s · {job.aspectRatio}</span>
+                    <StatusBadge status={job.status} />
+                  </div>
+                </button>
+                <button
+                  className="mt-3 inline-flex h-8 items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 text-xs text-red-700 hover:bg-red-100 disabled:opacity-50"
+                  onClick={() => deleteJob(job.id)}
+                  disabled={busy === `delete-${job.id}`}
+                >
+                  {busy === `delete-${job.id}` ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
+                  删除
+                </button>
+              </div>
             ))
           )}
         </div>
@@ -419,7 +463,13 @@ function IdeaIntake({
             </select>
           </Field>
           <Field label="视频语言">
-            <input className={inputClass} value={form.language} onChange={(event) => setForm((current) => ({ ...current, language: event.target.value }))} />
+            <select className={inputClass} value={form.language} onChange={(event) => setForm((current) => ({ ...current, language: event.target.value }))}>
+              {videoLanguages.map((language) => (
+                <option key={language} value={language}>
+                  {videoLanguageLabels[language]}
+                </option>
+              ))}
+            </select>
           </Field>
           <button className={cn(primaryButton, "mt-6 w-full justify-center")} onClick={createJob} disabled={busy}>
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}

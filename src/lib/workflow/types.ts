@@ -2,6 +2,15 @@ import { z } from "zod";
 
 export const visualStyles = ["现实短视频", "纪录片感", "轻剧情感", "干净图文感", "电影感"] as const;
 export const aspectRatios = ["9:16", "16:9", "1:1", "4:5"] as const;
+export const videoLanguages = ["auto", "zh", "en", "ja", "ko", "es"] as const;
+export const videoLanguageLabels: Record<(typeof videoLanguages)[number], string> = {
+  auto: "跟随输入",
+  zh: "中文",
+  en: "English",
+  ja: "日本語",
+  ko: "한국어",
+  es: "Español",
+};
 export const workflowStages = [
   "content_understanding",
   "video_plan",
@@ -21,7 +30,7 @@ export const createJobSchema = z.object({
   targetDurationSeconds: z.coerce.number().int().min(15).max(90),
   aspectRatio: z.enum(aspectRatios),
   visualStyle: z.enum(visualStyles),
-  language: z.string().min(2).default("auto"),
+  language: z.enum(videoLanguages).default("auto"),
 });
 
 export const contentUnderstandingSchema = z.object({

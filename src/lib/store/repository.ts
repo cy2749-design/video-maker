@@ -47,7 +47,7 @@ function fromJob(row: typeof videoJobs.$inferSelect): VideoJob {
   return {
     id: row.id,
     rawIdea: row.rawIdea,
-    language: row.language,
+    language: row.language as VideoJob["language"],
     aspectRatio: row.aspectRatio as VideoJob["aspectRatio"],
     targetDurationSeconds: row.targetDurationSeconds,
     visualStyle: row.visualStyle as VideoJob["visualStyle"],
@@ -140,17 +140,35 @@ function fromPrompt(row: typeof promptVersions.$inferSelect): PromptVersion {
 }
 
 export async function ensureDefaultPrompts() {
-  if (!hasDatabase()) return;
+  const defaults = createDefaultPromptVersions();
+  if (!hasDatabase()) {
+    for (const prompt of defaults) {
+      if (!memory.prompts.some((item) => item.id === prompt.id)) {
+        memory.prompts = memory.prompts.map((item) =>
+          item.promptId === prompt.promptId && item.status === "active" ? { ...item, status: "archived" } : item,
+        );
+        memory.prompts.unshift(prompt);
+      }
+    }
+    return;
+  }
+
   const db = getDb();
   const existing = await db.select().from(promptVersions);
-  if (existing.length > 0) return;
 
-  await db.insert(promptVersions).values(
-    createDefaultPromptVersions().map((prompt) => ({
+  for (const prompt of defaults) {
+    if (existing.some((item) => item.id === prompt.id)) continue;
+
+    await db
+      .update(promptVersions)
+      .set({ status: "archived" })
+      .where(and(eq(promptVersions.promptId, prompt.promptId), eq(promptVersions.status, "active")));
+
+    await db.insert(promptVersions).values({
       ...prompt,
       createdAt: new Date(prompt.createdAt),
-    })),
-  );
+    });
+  }
 }
 
 export async function createJob(job: VideoJob) {
@@ -179,6 +197,26 @@ export async function listJobs() {
   if (!hasDatabase()) return memory.jobs;
   const rows = await getDb().select().from(videoJobs);
   return rows.map(fromJob).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function deleteJob(jobId: string) {
+  if (!hasDatabase()) {
+    memory.jobs = memory.jobs.filter((item) => item.id !== jobId);
+    memory.stages = memory.stages.filter((item) => item.jobId !== jobId);
+    memory.shots = memory.shots.filter((item) => item.jobId !== jobId);
+    memory.sceneBlocks = memory.sceneBlocks.filter((item) => item.jobId !== jobId);
+    memory.assets = memory.assets.filter((item) => item.jobId !== jobId);
+    return;
+  }
+
+  const db = getDb();
+  await Promise.all([
+    db.delete(generatedAssets).where(eq(generatedAssets.jobId, jobId)),
+    db.delete(sceneBlocks).where(eq(sceneBlocks.jobId, jobId)),
+    db.delete(shots).where(eq(shots.jobId, jobId)),
+    db.delete(workflowStageOutputs).where(eq(workflowStageOutputs.jobId, jobId)),
+  ]);
+  await db.delete(videoJobs).where(eq(videoJobs.id, jobId));
 }
 
 export async function getJobBundle(jobId: string): Promise<JobBundle | null> {
