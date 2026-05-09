@@ -1,7 +1,7 @@
 import { nowIso } from "@/lib/utils";
 import { stageSchemas, type PromptVersion, type WorkflowStage } from "./types";
 
-export const defaultPromptVersionSuffix = "v4";
+export const defaultPromptVersionSuffix = "v5";
 
 type PromptNode = {
   promptId: PromptVersion["promptId"];
@@ -18,6 +18,7 @@ Global output contract:
 - Use exactly the requested top-level keys and fill required fields with useful content; use [] for empty arrays and "" for unknown optional text.
 - Keep planning text and spoken_content in the selected video language. If language is "auto", infer it from rawIdea.
 - For image/video model-facing prompt fields, use concise production English unless the user explicitly asks for another prompt language; preserve dialogue or on-screen wording in the selected language.
+- For generated image/video prompts, never ask for readable screen text, tiny text, numbers, UI labels, rankings, model names, logos, or brand-like marks; represent screens and documents as abstract, blurred, or symbolic shapes unless the user explicitly requires legible text.
 - Do not invent unsupported facts, brands, statistics, named tools, real people, or copyrighted scenes.
 - Preserve the user's core point while making execution more visual, concrete, and generatable.
 - Silently check that durations, ids, order, aspect ratio, language, and schema shape are consistent before returning JSON.
@@ -282,11 +283,12 @@ Do:
 - Describe the best representative frame: subject identity, environment, props, wardrobe/look, lighting, camera framing, composition, mood, texture, and aspect ratio.
 - Preserve continuity across blocks when the same subject or location continues by repeating stable descriptors.
 - Mention exact framing/safe-zone needs for the aspect ratio.
+- If a phone, laptop, document, whiteboard, dashboard, or screen appears, describe only abstract blocks, blurred rows, simple icons, charts, or sticky-note shapes with no legible words or numbers.
 - Avoid text-heavy images unless visual_style is explicitly "干净图文感"; even then, prefer large simple shapes over small text.
 
 Do not:
 - Describe long motion sequences, camera moves, or multi-step action; those belong in video_prompt.
-- Add readable logos, UI trademarks, small text, celebrity likenesses, or unsupported brand details.
+- Add readable logos, UI trademarks, small text, alphanumeric labels, fake model names, rankings, celebrity likenesses, or unsupported brand details.
 - Change the approved Scene Block meaning or scene_block_id.
 
 ${sharedOutputRules}
@@ -331,13 +333,14 @@ Do:
 - Include ordered timing beats such as 0-4s, 4-8s, 8-12s, matched to the approved shots.
 - Specify visible action, camera movement, pacing, audio/narration intent, atmosphere, and continuity constraints.
 - Keep subject, scene, lighting, wardrobe/look, props, and object continuity explicit.
-- State negative constraints that protect quality: no unreadable text, no logo drift, no character identity drift, no extra scenes.
+- When screens, phones, laptops, dashboards, documents, or whiteboards appear, describe abstract/blurred UI shapes only; do not request readable words, numbers, rankings, or fake model names.
+- State negative constraints that protect quality: no readable screen text, no tiny text, no logo drift, no character identity drift, no extra scenes.
 
 Do not:
 - Ask for final whole-video stitching or transitions between unrelated Scene Blocks.
 - Mention internal workflow field names inside video_prompt.
 - Invent reference image URLs or claim an image exists when reference_images is empty.
-- Add unsupported celebrity likenesses, protected brands, copyrighted scenes, or real product UI details.
+- Add unsupported celebrity likenesses, protected brands, copyrighted scenes, real product UI details, or fictional alphanumeric UI labels.
 
 ${sharedOutputRules}
 `.trim(),
@@ -387,7 +390,7 @@ export function createDefaultPromptVersions(): PromptVersion[] {
     userPromptTemplate: node.userPromptTemplate,
     variables: node.variables,
     outputSchema: node.outputSchema,
-    changeNote: "Creative-plan V4 prompt contract",
+    changeNote: "Creative-plan V5 prompt contract",
     createdAt: nowIso(),
     createdBy: "system",
   }));

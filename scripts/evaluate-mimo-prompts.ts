@@ -30,7 +30,7 @@ function near(actual: number, expected: number, tolerance: number) {
 }
 
 function hasTiming(prompt: string) {
-  return /\b\d+\s*-\s*\d+\s*s\b/i.test(prompt) || /\b\d+\s*to\s*\d+\s*seconds\b/i.test(prompt);
+  return /\b\d+\s*[-–—]\s*\d+\s*s\b/i.test(prompt) || /\b\d+\s*to\s*\d+\s*seconds\b/i.test(prompt);
 }
 
 function isObject(value: unknown): value is AnyObject {
