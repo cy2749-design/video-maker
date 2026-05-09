@@ -53,6 +53,7 @@ export async function generateStructuredOutputWithMimo(
       content: [
         promptVersion?.systemInstruction ?? "Generate structured JSON for an automated video workflow.",
         "Return only valid JSON. Do not wrap it in markdown. Do not include commentary. Do not include keys outside the requested schema.",
+        "The output is for AI image/video generation only. Do not propose live-action filming, real footage collection, creator collaboration, actors, shooting logistics, or editing existing material.",
         stageContract(stage),
       ].join("\n\n"),
     },
@@ -185,11 +186,11 @@ function stageContract(stage: WorkflowStage) {
     content_understanding:
       'Output keys: raw_input_summary string, core_message string, content_intent string, target_viewer string, tone string, key_points string[], creative_risk string[].',
     video_plan:
-      'Output keys: video_title string, target_duration_seconds number, aspect_ratio string, visual_style string, decision_status "needs_user_selection", core_idea string, creative_expansion empty array, concept_variations array of {name, description, why_it_works}, selected_concept empty string, key_visual_moments empty array, character_and_setting empty string, narrative_structure empty array, visual_direction empty string, audio_direction empty string, generation_notes empty array.',
+      'Output keys: video_title string, target_duration_seconds number, aspect_ratio string, visual_style string, decision_status "needs_user_selection", core_idea string, creative_expansion empty array, concept_variations array of {name, description, why_it_works}, selected_concept empty string, key_visual_moments empty array, character_and_setting empty string, narrative_structure empty array, visual_direction empty string, audio_direction empty string, generation_notes empty array. Options must be AI-generated video concepts only, not live-action or editing plans.',
     script:
-      'Output keys: title string, target_duration_seconds number, script_sections array of {section_id, section_type, duration_seconds, narration_intent, spoken_content, visual_intent}.',
+      'Output keys: title string, target_duration_seconds number, script_sections array of {section_id, section_type, duration_seconds, narration_intent, spoken_content, visual_intent}. visual_intent must describe generated visuals, not filming instructions.',
     shot_list:
-      'Output keys: shots array of {shot_id, section_id, duration_seconds, spoken_content_ref, visual_description, camera, motion, visual_role, composition_note}.',
+      'Output keys: shots array of {shot_id, section_id, duration_seconds, spoken_content_ref, visual_description, camera, motion, visual_role, composition_note}. Shots are virtual AI video shots; do not mention real filming or existing footage.',
     scene_blocks:
       'Output keys: scene_blocks array of {scene_block_id, duration_seconds between 5 and 15, shot_ids string[], block_summary, visual_continuity, audio_intent, keyframe_strategy, generation_model}.',
     keyframe_prompts:

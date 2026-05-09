@@ -388,7 +388,7 @@ function normalizeStageOutput(
     return {
       ...output,
       decision_status: "needs_user_selection",
-      core_idea: stringOr(output.core_idea, stringOr(output.video_concept, "把用户想法扩展成可拍摄的视频创意。")),
+      core_idea: stringOr(output.core_idea, stringOr(output.video_concept, "把用户想法扩展成可由 AI 视频模型生成的视频创意。")),
       creative_expansion: Array.isArray(output.creative_expansion)
         ? output.creative_expansion.map(String)
         : ["补充更具体的视觉玩法、情节推进和记忆点。"],
@@ -397,14 +397,14 @@ function normalizeStageOutput(
             const item = variation as Record<string, unknown>;
             return {
               name: stringOr(item.name, `创意方向 ${index + 1}`),
-              description: stringOr(item.description, "一个可执行的视频创意方向。"),
-              why_it_works: stringOr(item.why_it_works, "这个方向能让原始想法更可视化。"),
+              description: stringOr(item.description, "一个可由 AI 视频模型生成的视频创意方向。"),
+              why_it_works: stringOr(item.why_it_works, "这个方向能让原始想法变成清晰、可生成的画面。"),
             };
           })
         : [
             {
               name: "主创意方向",
-              description: stringOr(output.video_concept, "把用户想法扩展成可拍摄的视频创意。"),
+              description: stringOr(output.video_concept, "把用户想法扩展成可由 AI 视频模型生成的视频创意。"),
               why_it_works: "它保留原始想法，同时给后续脚本和镜头明确抓手。",
             },
           ],

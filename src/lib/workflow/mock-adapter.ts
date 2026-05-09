@@ -71,7 +71,7 @@ export async function generateStructuredOutput(
         {
           name: "老板的工具焦虑",
           description: "老板在电脑前快速切换 AI 工具页面，越看越迷茫。",
-          why_it_works: "能直接表现错误起点，也容易拍成真实短视频。",
+          why_it_works: "能直接表现错误起点，也适合生成成真实感短视频画面。",
         },
         {
           name: "办公室重复劳动显影",

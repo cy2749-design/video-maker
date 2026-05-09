@@ -48,6 +48,15 @@ describe("workflow schemas and mock adapter", () => {
     expect(prompts.every((prompt) => prompt.status === "active")).toBe(true);
   });
 
+  it("keeps concept planning scoped to AI video generation instead of live-action production", () => {
+    const prompt = createDefaultPromptVersions().find((item) => item.promptId === "video_plan");
+    expect(prompt?.id).toBe("video_plan_v8");
+    expect(prompt?.systemInstruction).toContain("AI-generated short video");
+    expect(prompt?.systemInstruction).toContain("real filming");
+    expect(prompt?.systemInstruction).toContain("footage");
+    expect(prompt?.userPromptTemplate).toContain("generated on-screen content");
+  });
+
   it("generates schema-valid outputs across the workflow", async () => {
     const previous: Record<string, unknown> = {};
     const stages: WorkflowStage[] = [
