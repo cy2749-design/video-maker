@@ -1,7 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDefaultPromptVersions } from "./prompts";
 import { generateStructuredOutput } from "./mock-adapter";
+import { generateStructuredOutputWithMimo } from "./mimo-adapter";
 import { sceneBlockListSchema, stageSchemas, type WorkflowStage } from "./types";
+
+const originalFetch = globalThis.fetch;
+const originalMimoApiKey = process.env.MIMO_API_KEY;
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  if (originalMimoApiKey === undefined) {
+    delete process.env.MIMO_API_KEY;
+  } else {
+    process.env.MIMO_API_KEY = originalMimoApiKey;
+  }
+});
 
 const job = {
   id: "job_test",
@@ -53,5 +66,43 @@ describe("workflow schemas and mock adapter", () => {
       expect(block.duration_seconds).toBeLessThanOrEqual(15);
       expect(block.shot_ids.length).toBeGreaterThan(0);
     }
+  });
+
+  it("renders prompt template variables before calling Mimo", async () => {
+    process.env.MIMO_API_KEY = "test-key";
+    let requestBody: { messages: Array<{ role: string; content: string }> } | null = null;
+
+    globalThis.fetch = vi.fn(async (_url, init) => {
+      requestBody = JSON.parse(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  raw_input_summary: "老板先追模型，而不是先找重复耗人力流程。",
+                  core_message: "先找场景，再选模型。",
+                  content_intent: "务实观点表达",
+                  target_viewer: "",
+                  tone: "务实，有一点反差幽默",
+                  key_points: ["先问模型是误区", "重复耗人力流程才是切入点"],
+                  creative_risk: [],
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    const prompt = createDefaultPromptVersions().find((item) => item.promptId === "content_understanding") ?? null;
+    await generateStructuredOutputWithMimo("content_understanding", { job, previous: {} }, prompt);
+
+    const userMessage = requestBody?.messages.find((message) => message.role === "user")?.content ?? "";
+    expect(userMessage).toContain(job.rawIdea);
+    expect(userMessage).toContain(job.visualStyle);
+    expect(userMessage).not.toContain("{{rawIdea}}");
+    expect(userMessage).not.toContain("{{settings}}");
   });
 });

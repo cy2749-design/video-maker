@@ -16,8 +16,19 @@ type MimoResponse = {
   }>;
 };
 
+type MimoWorkflowInput = {
+  job?: {
+    rawIdea?: string;
+    language?: string;
+    targetDurationSeconds?: number;
+    aspectRatio?: string;
+    visualStyle?: string;
+  };
+  previous?: Record<string, unknown>;
+};
+
 export function hasMimoConfig() {
-  return Boolean(process.env.MIMO_API_KEY);
+  return Boolean(process.env.MIMO_API_KEY?.trim());
 }
 
 export async function generateStructuredOutputWithMimo(
@@ -25,27 +36,31 @@ export async function generateStructuredOutputWithMimo(
   input: unknown,
   promptVersion: PromptVersion | null,
 ) {
-  const apiKey = process.env.MIMO_API_KEY;
+  const apiKey = process.env.MIMO_API_KEY?.trim();
   if (!apiKey) {
     throw new Error("MIMO_API_KEY is not configured");
   }
 
   const baseUrl = process.env.MIMO_BASE_URL ?? defaultBaseUrl;
   const model = normalizeMimoModel(process.env.MIMO_MODEL ?? defaultModel);
+  const renderedUserPrompt = renderPromptTemplate(
+    promptVersion?.userPromptTemplate ?? `Run workflow stage: ${stage}`,
+    buildTemplateVariables(input),
+  );
   const messages: MimoMessage[] = [
     {
       role: "system",
       content: [
         promptVersion?.systemInstruction ?? "Generate structured JSON for an automated video workflow.",
-        "Return only valid JSON. Do not wrap it in markdown. Do not include commentary.",
+        "Return only valid JSON. Do not wrap it in markdown. Do not include commentary. Do not include keys outside the requested schema.",
         stageContract(stage),
       ].join("\n\n"),
     },
     {
       role: "user",
       content: [
-        promptVersion?.userPromptTemplate ?? `Run workflow stage: ${stage}`,
-        "Runtime input JSON:",
+        renderedUserPrompt,
+        "Complete runtime input JSON for consistency checking:",
         JSON.stringify(input, null, 2),
       ].join("\n\n"),
     },
@@ -80,10 +95,63 @@ export async function generateStructuredOutputWithMimo(
       throw new Error("Mimo API returned an empty completion");
     }
 
-    return JSON.parse(stripJsonFence(content));
+    return JSON.parse(extractJsonObject(stripJsonFence(content)));
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function renderPromptTemplate(template: string, variables: Record<string, unknown>) {
+  return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key: string) =>
+    formatTemplateValue(Object.prototype.hasOwnProperty.call(variables, key) ? variables[key] : ""),
+  );
+}
+
+function buildTemplateVariables(input: unknown): Record<string, unknown> {
+  const workflowInput = isRecord(input) ? (input as MimoWorkflowInput) : {};
+  const job = isRecord(workflowInput.job) ? workflowInput.job : {};
+  const previous = isRecord(workflowInput.previous) ? workflowInput.previous : {};
+
+  return {
+    rawIdea: typeof job.rawIdea === "string" ? job.rawIdea : "",
+    settings: {
+      language: job.language ?? "auto",
+      targetDurationSeconds: job.targetDurationSeconds ?? "",
+      aspectRatio: job.aspectRatio ?? "",
+      visualStyle: job.visualStyle ?? "",
+    },
+    contentUnderstanding: previous.content_understanding ?? {},
+    videoPlan: previous.video_plan ?? {},
+    script: previous.script ?? {},
+    shots: previous.shot_list ?? {},
+    duration: job.targetDurationSeconds ?? "",
+    sceneBlocks: previous.scene_blocks ?? {},
+    visualStyle: job.visualStyle ?? "",
+    aspectRatio: job.aspectRatio ?? "",
+    referenceImages: buildReferenceImages(previous.keyframe_prompts),
+  };
+}
+
+function buildReferenceImages(keyframeOutput: unknown) {
+  if (!isRecord(keyframeOutput) || !Array.isArray(keyframeOutput.keyframes)) return [];
+  return keyframeOutput.keyframes.map((keyframe) => {
+    const item = isRecord(keyframe) ? keyframe : {};
+    return {
+      scene_block_id: item.scene_block_id ?? "",
+      type: item.keyframe_strategy ?? "first_frame",
+      url: item.image_url ?? "",
+      prompt: item.prompt ?? "",
+    };
+  });
+}
+
+function formatTemplateValue(value: unknown) {
+  if (typeof value === "string") return value;
+  return JSON.stringify(value, null, 2);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function stripJsonFence(content: string) {
@@ -92,6 +160,17 @@ function stripJsonFence(content: string) {
     .replace(/^```json\s*/i, "")
     .replace(/^```\s*/i, "")
     .replace(/\s*```$/i, "");
+}
+
+function extractJsonObject(content: string) {
+  const trimmed = content.trim();
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) return trimmed;
+
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start >= 0 && end > start) return trimmed.slice(start, end + 1);
+
+  return trimmed;
 }
 
 function normalizeMimoModel(model: string) {
@@ -106,7 +185,7 @@ function stageContract(stage: WorkflowStage) {
     content_understanding:
       'Output keys: raw_input_summary string, core_message string, content_intent string, target_viewer string, tone string, key_points string[], creative_risk string[].',
     video_plan:
-      'Output keys: video_title string, target_duration_seconds number, aspect_ratio string, visual_style string, video_concept string, narrative_structure array of {part, goal, duration_seconds}, visual_direction string, audio_direction string.',
+      'Output keys: video_title string, target_duration_seconds number, aspect_ratio string, visual_style string, core_idea string, creative_expansion string[], concept_variations array of {name, description, why_it_works}, selected_concept string, key_visual_moments string[], character_and_setting string, narrative_structure array of {part, goal, duration_seconds}, visual_direction string, audio_direction string, generation_notes string[].',
     script:
       'Output keys: title string, target_duration_seconds number, script_sections array of {section_id, section_type, duration_seconds, narration_intent, spoken_content, visual_intent}.',
     shot_list:
