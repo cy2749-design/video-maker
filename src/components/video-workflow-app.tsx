@@ -94,7 +94,18 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
     headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
   });
   const json = await response.json();
-  if (!response.ok) throw new Error(json.error ?? "Request failed");
+  if (!response.ok) {
+    const detail = Array.isArray(json.details)
+      ? json.details
+          .map((item: { path?: unknown[]; message?: string }) => {
+            const field = Array.isArray(item.path) ? item.path.join(".") : "";
+            return field ? `${field}: ${item.message}` : item.message;
+          })
+          .filter(Boolean)
+          .join("; ")
+      : "";
+    throw new Error(detail || json.error || "Request failed");
+  }
   return json;
 }
 

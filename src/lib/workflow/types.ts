@@ -26,7 +26,7 @@ export type StageStatus = "pending" | "running" | "success" | "error";
 export type JobStatus = "draft" | "running" | "ready" | "error";
 
 export const createJobSchema = z.object({
-  rawIdea: z.string().min(10),
+  rawIdea: z.string().trim().min(3),
   targetDurationSeconds: z.coerce.number().int().min(15).max(90),
   aspectRatio: z.enum(aspectRatios),
   visualStyle: z.enum(visualStyles),

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDefaultPromptVersions } from "./prompts";
 import { generateStructuredOutput } from "./mock-adapter";
 import { generateStructuredOutputWithMimo } from "./mimo-adapter";
-import { sceneBlockListSchema, stageSchemas, type WorkflowStage } from "./types";
+import { createJobSchema, sceneBlockListSchema, stageSchemas, type WorkflowStage } from "./types";
 
 const originalFetch = globalThis.fetch;
 const originalMimoApiKey = process.env.MIMO_API_KEY;
@@ -27,6 +27,19 @@ const job = {
 } as const;
 
 describe("workflow schemas and mock adapter", () => {
+  it("accepts concise idea input for quick job creation", () => {
+    const input = createJobSchema.parse({
+      rawIdea: "猫猫开飞机的视频",
+      targetDurationSeconds: "15",
+      aspectRatio: "9:16",
+      visualStyle: "现实短视频",
+      language: "zh",
+    });
+
+    expect(input.rawIdea).toBe("猫猫开飞机的视频");
+    expect(input.targetDurationSeconds).toBe(15);
+  });
+
   it("creates active prompt versions for every structured workflow stage", () => {
     const prompts = createDefaultPromptVersions();
     const ids = prompts.map((prompt) => prompt.promptId);
