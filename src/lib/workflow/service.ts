@@ -68,7 +68,7 @@ export async function runWorkflowStage(jobId: string, stage: WorkflowStage) {
     const raw = hasMimoConfig()
       ? await generateStructuredOutputWithMimo(stage, adapterInput, prompt)
       : await generateMockStructuredOutput(stage, adapterInput, prompt);
-    const output = stageSchemas[stage].parse(raw);
+    const output = stageSchemas[stage].parse(normalizeStageOutput(stage, raw, bundle.job, previous));
     const saved = await saveStage({
       id: `${jobId}_${stage}`,
       jobId,
@@ -260,4 +260,140 @@ function toSceneBlockRecords(jobId: string, output: SceneBlockListOutput): Scene
 
 function buildFallbackVideoPrompt(block: SceneBlockRecord) {
   return `Create a ${block.durationSeconds}-second connected video clip for ${block.id}. ${block.blockSummary}. Audio: ${block.audioIntent}`;
+}
+
+function normalizeStageOutput(
+  stage: WorkflowStage,
+  raw: unknown,
+  job: { targetDurationSeconds: number; aspectRatio: string; visualStyle: string },
+  previous: Record<string, unknown>,
+) {
+  if (!raw || typeof raw !== "object") return raw;
+  const output = raw as Record<string, unknown>;
+
+  if (stage === "script" && Array.isArray(output.script_sections)) {
+    const sections = output.script_sections;
+    return {
+      ...output,
+      title: typeof output.title === "string" ? output.title : "AI 视频脚本",
+      target_duration_seconds:
+        typeof output.target_duration_seconds === "number" ? output.target_duration_seconds : job.targetDurationSeconds,
+      script_sections: sections.map((section, index) => {
+        const item = section as Record<string, unknown>;
+        return {
+          section_id: stringOr(item.section_id, `s${index + 1}`),
+          section_type: stringOr(item.section_type, index === 0 ? "hook" : index === 1 ? "development" : "ending"),
+          duration_seconds: numberOr(item.duration_seconds, Math.round(job.targetDurationSeconds / sections.length)),
+          narration_intent: stringOr(item.narration_intent, stringOr(item.spoken_content, "表达本段核心观点").slice(0, 80)),
+          spoken_content: stringOr(item.spoken_content, "围绕用户观点进行自然中文表达。"),
+          visual_intent: stringOr(item.visual_intent, "用真实、清晰的画面支撑本段表达。"),
+        };
+      }),
+    };
+  }
+
+  if (stage === "shot_list" && Array.isArray(output.shots)) {
+    return {
+      shots: output.shots.map((shot, index) => {
+        const item = shot as Record<string, unknown>;
+        return {
+          shot_id: stringOr(item.shot_id, `shot_${String(index + 1).padStart(3, "0")}`),
+          section_id: stringOr(item.section_id, "s1"),
+          duration_seconds: numberOr(item.duration_seconds, 5),
+          spoken_content_ref: stringOr(item.spoken_content_ref, ""),
+          visual_description: stringOr(item.visual_description, "真实办公室场景中的连续镜头。"),
+          camera: stringOr(item.camera, "中景，轻微手持"),
+          motion: stringOr(item.motion, "人物自然动作，镜头轻微移动"),
+          visual_role: stringOr(item.visual_role, "承接脚本观点"),
+          composition_note: stringOr(item.composition_note, `${job.aspectRatio} 构图，主体保持在安全区。`),
+        };
+      }),
+    };
+  }
+
+  if (stage === "scene_blocks" && Array.isArray(output.scene_blocks)) {
+    return {
+      scene_blocks: output.scene_blocks.map((block, index) => {
+        const item = block as Record<string, unknown>;
+        const shotIds = Array.isArray(item.shot_ids) ? item.shot_ids.map(String) : [];
+        return {
+          scene_block_id: stringOr(item.scene_block_id, `block_${String(index + 1).padStart(3, "0")}`),
+          duration_seconds: Math.min(Math.max(numberOr(item.duration_seconds, 8), 5), 15),
+          shot_ids: shotIds,
+          block_summary: stringOr(item.block_summary, `Scene Block ${index + 1}`),
+          visual_continuity: stringOr(item.visual_continuity, "保持同一人物、同一场景、同一光线。"),
+          audio_intent: stringOr(item.audio_intent, "自然中文旁白和轻微环境音。"),
+          keyframe_strategy: stringOr(item.keyframe_strategy, "first_frame_only"),
+          generation_model: stringOr(item.generation_model, "seedance2"),
+        };
+      }),
+    };
+  }
+
+  if (stage === "keyframe_prompts" && Array.isArray(output.keyframes)) {
+    return {
+      keyframes: output.keyframes.map((keyframe) => {
+        const item = keyframe as Record<string, unknown>;
+        return {
+          scene_block_id: stringOr(item.scene_block_id, "block_001"),
+          keyframe_strategy: stringOr(item.keyframe_strategy, "first_frame_only"),
+          image_model: stringOr(item.image_model, "gpt-image-2"),
+          image_size: stringOr(item.image_size, job.aspectRatio === "9:16" ? "1080x1920" : "1920x1080"),
+          prompt: stringOr(item.prompt, `A ${job.visualStyle} keyframe for a ${job.aspectRatio} video.`),
+          image_url: typeof item.image_url === "string" ? item.image_url : undefined,
+        };
+      }),
+    };
+  }
+
+  if (stage === "video_prompts" && Array.isArray(output.videos)) {
+    return {
+      videos: output.videos.map((video) => {
+        const item = video as Record<string, unknown>;
+        return {
+          scene_block_id: stringOr(item.scene_block_id, "block_001"),
+          video_model: stringOr(item.video_model, "seedance2"),
+          duration_seconds: numberOr(item.duration_seconds, 8),
+          aspect_ratio: stringOr(item.aspect_ratio, job.aspectRatio),
+          reference_images: Array.isArray(item.reference_images) ? item.reference_images : [],
+          video_prompt: stringOr(item.video_prompt, "Create a realistic connected video clip from the Scene Block."),
+          video_url: typeof item.video_url === "string" ? item.video_url : undefined,
+          status: stringOr(item.status, "pending"),
+        };
+      }),
+    };
+  }
+
+  if (stage === "video_plan") {
+    return {
+      ...output,
+      target_duration_seconds:
+        typeof output.target_duration_seconds === "number" ? output.target_duration_seconds : job.targetDurationSeconds,
+      aspect_ratio: stringOr(output.aspect_ratio, job.aspectRatio),
+      visual_style: stringOr(output.visual_style, job.visualStyle),
+    };
+  }
+
+  if (stage === "content_understanding") {
+    return {
+      raw_input_summary: stringOr(output.raw_input_summary, ""),
+      core_message: stringOr(output.core_message, ""),
+      content_intent: stringOr(output.content_intent, "观点表达"),
+      target_viewer: stringOr(output.target_viewer, ""),
+      tone: stringOr(output.tone, ""),
+      key_points: Array.isArray(output.key_points) ? output.key_points.map(String) : [],
+      creative_risk: Array.isArray(output.creative_risk) ? output.creative_risk.map(String) : [],
+    };
+  }
+
+  void previous;
+  return raw;
+}
+
+function stringOr(value: unknown, fallback: string) {
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function numberOr(value: unknown, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
