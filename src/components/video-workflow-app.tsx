@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  ArrowRight,
   Braces,
+  CheckCircle2,
   Clapperboard,
   FileJson,
   Film,
@@ -16,7 +18,15 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ComponentType } from "react";
 import { cn } from "@/lib/utils";
-import { aspectRatios, visualStyles, workflowStages, type JobBundle, type PromptVersion, type StageOutputRecord, type WorkflowStage } from "@/lib/workflow/types";
+import {
+  aspectRatios,
+  visualStyles,
+  workflowStages,
+  type JobBundle,
+  type PromptVersion,
+  type StageOutputRecord,
+  type WorkflowStage,
+} from "@/lib/workflow/types";
 import { getPromptTitle } from "@/lib/workflow/prompts";
 
 type WorkflowForm = {
@@ -30,14 +40,33 @@ type WorkflowForm = {
 type JobListItem = JobBundle["job"];
 type ViewMode = "workflow" | "prompts";
 
+const initialForm: WorkflowForm = {
+  rawIdea:
+    "我想做一个视频，讲为什么很多传统企业老板学 AI 的第一步就错了。他们总是先问哪个模型好，但真正重要的是先找出公司里每天重复发生、又消耗人力的事情。视频要务实一点，不要像 AI 培训课。",
+  targetDurationSeconds: 45,
+  aspectRatio: "9:16",
+  visualStyle: "现实短视频",
+  language: "zh",
+};
+
 const stageLabels: Record<WorkflowStage, string> = {
   content_understanding: "内容理解",
   video_plan: "视频方案",
   script: "脚本",
   shot_list: "镜头规划",
-  scene_blocks: "Scene Blocks",
+  scene_blocks: "Scene Block 分组",
   keyframe_prompts: "关键帧 Prompt",
-  video_prompts: "视频 Prompt",
+  video_prompts: "视频片段 Prompt",
+};
+
+const stageDescriptions: Record<WorkflowStage, string> = {
+  content_understanding: "把你的想法整理成核心观点、受众、语气和必须保留的信息点。",
+  video_plan: "确认整条视频怎么讲、时长怎么分配、画面和声音方向是什么。",
+  script: "把视频方案拆成可以给视频模型理解的分段表达。",
+  shot_list: "把脚本拆成具体镜头。镜头只用于规划，不直接生成视频。",
+  scene_blocks: "把连续镜头合并成 5-15 秒的视频生成单位。",
+  keyframe_prompts: "为每个 Scene Block 准备关键帧图片 prompt，并可生成预览图。",
+  video_prompts: "把 Scene Block、镜头顺序、参考图和音频要求整理成视频生成 prompt。",
 };
 
 const stageIcons: Record<WorkflowStage, ComponentType<{ className?: string }>> = {
@@ -72,26 +101,22 @@ export function VideoWorkflowApp() {
   const [prompts, setPrompts] = useState<PromptVersion[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({
-    rawIdea:
-      "我想做一个视频，讲为什么很多传统企业老板学 AI 的第一步就错了。他们总是先问哪个模型好，但真正重要的是先找出公司里每天重复发生、又消耗人力的事情。视频要务实一点，不要像 AI 培训课。",
-    targetDurationSeconds: 45,
-    aspectRatio: "9:16",
-    visualStyle: "现实短视频",
-    language: "zh",
-  });
+  const [form, setForm] = useState<WorkflowForm>(initialForm);
 
   async function loadJobs() {
     const data = await api<{ jobs: JobListItem[] }>("/api/jobs");
     setJobs(data.jobs);
-    if (!bundle && data.jobs[0]) await loadBundle(data.jobs[0].id);
   }
 
-  async function loadBundle(id: string) {
+  async function loadBundle(id: string, keepStage = false) {
     const next = await api<JobBundle>(`/api/jobs/${id}`);
     setBundle(next);
-    const firstPending = workflowStages.find((stage) => !next.stages.some((item) => item.stage === stage && item.status === "success"));
-    setActiveStage(firstPending ?? "video_prompts");
+    if (!keepStage) {
+      const firstPending =
+        workflowStages.find((stage) => !next.stages.some((item) => item.stage === stage && item.status === "success")) ??
+        "video_prompts";
+      setActiveStage(firstPending);
+    }
   }
 
   async function loadPrompts() {
@@ -103,7 +128,6 @@ export function VideoWorkflowApp() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadJobs().catch((err) => setError(err.message));
     void loadPrompts().catch((err) => setError(err.message));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function createJob() {
@@ -132,7 +156,7 @@ export function VideoWorkflowApp() {
         method: "POST",
         body: JSON.stringify({ stage }),
       });
-      await loadBundle(bundle.job.id);
+      await loadBundle(bundle.job.id, true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Run stage failed");
     } finally {
@@ -140,85 +164,48 @@ export function VideoWorkflowApp() {
     }
   }
 
-  async function runAll() {
-    if (!bundle) return;
-    for (const stage of workflowStages) {
-      setActiveStage(stage);
-      await runStage(stage);
-    }
-  }
-
-  async function refreshCurrent() {
-    if (bundle) await loadBundle(bundle.job.id);
+  async function reloadCurrent() {
+    if (bundle) await loadBundle(bundle.job.id, true);
     await loadJobs();
     await loadPrompts();
   }
 
   return (
-    <main className="min-h-dvh bg-[#090b0f] text-slate-100">
-      <div className="grid min-h-dvh grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="border-b border-white/10 bg-[#0d1117] p-4 lg:border-b-0 lg:border-r">
+    <main className="min-h-dvh bg-[#f7f4ed] text-stone-950">
+      <div className="mx-auto flex min-h-dvh w-full max-w-[1480px] flex-col">
+        <header className="flex flex-col gap-4 border-b border-stone-200 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
-            <div className="grid size-10 place-items-center rounded-lg bg-teal-400/15 text-teal-200">
+            <div className="grid size-11 place-items-center rounded-lg bg-stone-950 text-white">
               <Film className="size-5" />
             </div>
             <div>
-              <h1 className="text-base font-semibold">Video Maker Workflow</h1>
-              <p className="text-xs text-slate-400">Scene Block V1 Console</p>
+              <h1 className="text-xl font-semibold tracking-tight">Video Maker Workflow</h1>
+              <p className="text-sm text-stone-500">一步一步生成、确认、再进入下一步</p>
             </div>
           </div>
-
-          <div className="mt-5 grid grid-cols-2 gap-2">
-            <button className={navButton(view === "workflow")} onClick={() => setView("workflow")}>
-              <Workflow className="size-4" /> Workflow
+          <div className="flex flex-wrap gap-2">
+            <button className={topTab(view === "workflow")} onClick={() => setView("workflow")}>
+              <Workflow className="size-4" />
+              工作流
             </button>
-            <button className={navButton(view === "prompts")} onClick={() => setView("prompts")}>
-              <Settings2 className="size-4" /> Prompts
+            <button className={topTab(view === "prompts")} onClick={() => setView("prompts")}>
+              <Settings2 className="size-4" />
+              Prompt 管理
             </button>
           </div>
+        </header>
 
-          <section className="mt-5 rounded-lg border border-white/10 bg-white/[0.03] p-3">
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Jobs</p>
-              <button className="text-xs text-teal-200 hover:text-teal-100" onClick={refreshCurrent}>
-                Refresh
-              </button>
-            </div>
-            <div className="space-y-2">
-              {jobs.length === 0 ? (
-                <p className="text-sm text-slate-500">还没有任务，先从右侧创建一个。</p>
-              ) : (
-                jobs.map((job) => (
-                  <button
-                    key={job.id}
-                    className={cn(
-                      "w-full rounded-md border p-3 text-left transition",
-                      bundle?.job.id === job.id
-                        ? "border-teal-300/40 bg-teal-300/10"
-                        : "border-white/10 bg-black/10 hover:border-white/20",
-                    )}
-                    onClick={() => loadBundle(job.id)}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-medium">{job.rawIdea}</span>
-                      <StatusBadge status={job.status} />
-                    </div>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {job.targetDurationSeconds}s · {job.aspectRatio} · {job.visualStyle}
-                    </p>
-                  </button>
-                ))
-              )}
-            </div>
-          </section>
-        </aside>
+        {error ? (
+          <div className="mx-5 mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        ) : null}
 
-        <section className="min-w-0 p-4 sm:p-6">
-          {error ? (
-            <div className="mb-4 rounded-lg border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error}</div>
-          ) : null}
+        <section className="grid flex-1 gap-5 px-5 py-5 lg:grid-cols-[280px_minmax(0,1fr)]">
+          <aside className="space-y-4">
+            <JobContext bundle={bundle} jobs={jobs} loadBundle={loadBundle} loadJobs={loadJobs} setBundle={setBundle} />
+          </aside>
+
           {view === "workflow" ? (
-            <WorkflowView
+            <WorkflowWizard
               form={form}
               setForm={setForm}
               bundle={bundle}
@@ -227,8 +214,7 @@ export function VideoWorkflowApp() {
               busy={busy}
               createJob={createJob}
               runStage={runStage}
-              runAll={runAll}
-              reload={() => bundle && loadBundle(bundle.job.id)}
+              reload={reloadCurrent}
             />
           ) : (
             <PromptManagement prompts={prompts} reload={loadPrompts} setError={setError} />
@@ -239,7 +225,78 @@ export function VideoWorkflowApp() {
   );
 }
 
-function WorkflowView(props: {
+function JobContext({
+  bundle,
+  jobs,
+  loadBundle,
+  loadJobs,
+  setBundle,
+}: {
+  bundle: JobBundle | null;
+  jobs: JobListItem[];
+  loadBundle: (id: string) => Promise<void>;
+  loadJobs: () => Promise<void>;
+  setBundle: (bundle: JobBundle | null) => void;
+}) {
+  return (
+    <>
+      <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">当前任务</p>
+        {bundle ? (
+          <div className="mt-3">
+            <p className="line-clamp-4 text-sm leading-6 text-stone-800">{bundle.job.rawIdea}</p>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs text-stone-500">
+              <span>{bundle.job.targetDurationSeconds}s</span>
+              <span>{bundle.job.aspectRatio}</span>
+              <span>{bundle.job.visualStyle}</span>
+              <span>{bundle.storageMode}</span>
+            </div>
+            <button className="mt-4 h-9 rounded-md border border-stone-200 px-3 text-sm text-stone-700 hover:bg-stone-50" onClick={() => setBundle(null)}>
+              新建另一个任务
+            </button>
+          </div>
+        ) : (
+          <p className="mt-3 text-sm leading-6 text-stone-500">
+            还没有选中的任务。先在主区域输入想法并创建，系统会从第一步开始。
+          </p>
+        )}
+      </section>
+
+      <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">历史任务</p>
+          <button className="text-xs text-stone-500 hover:text-stone-900" onClick={loadJobs}>
+            刷新
+          </button>
+        </div>
+        <div className="mt-3 space-y-2">
+          {jobs.length === 0 ? (
+            <p className="text-sm text-stone-500">暂无历史任务。</p>
+          ) : (
+            jobs.slice(0, 8).map((job) => (
+              <button
+                key={job.id}
+                className={cn(
+                  "w-full rounded-md border p-3 text-left transition",
+                  bundle?.job.id === job.id ? "border-stone-900 bg-stone-50" : "border-stone-200 bg-white hover:bg-stone-50",
+                )}
+                onClick={() => loadBundle(job.id)}
+              >
+                <p className="line-clamp-2 text-sm font-medium text-stone-800">{job.rawIdea}</p>
+                <div className="mt-2 flex items-center justify-between text-xs text-stone-500">
+                  <span>{job.targetDurationSeconds}s · {job.aspectRatio}</span>
+                  <StatusBadge status={job.status} />
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function WorkflowWizard(props: {
   form: WorkflowForm;
   setForm: React.Dispatch<React.SetStateAction<WorkflowForm>>;
   bundle: JobBundle | null;
@@ -248,143 +305,250 @@ function WorkflowView(props: {
   busy: string | null;
   createJob: () => Promise<void>;
   runStage: (stage: WorkflowStage) => Promise<void>;
-  runAll: () => Promise<void>;
-  reload: () => Promise<void> | null;
+  reload: () => Promise<void>;
 }) {
-  const { form, setForm, bundle, activeStage, setActiveStage, busy, createJob, runStage, runAll, reload } = props;
+  const { form, setForm, bundle, activeStage, setActiveStage, busy, createJob, runStage, reload } = props;
   const activeRecord = bundle?.stages.find((stage) => stage.stage === activeStage);
+  const activeIndex = workflowStages.indexOf(activeStage);
   const completedCount = bundle?.stages.filter((stage) => stage.status === "success").length ?? 0;
 
+  if (!bundle) {
+    return <IdeaIntake form={form} setForm={setForm} createJob={createJob} busy={busy === "create-job"} />;
+  }
+
+  function goNext() {
+    const next = workflowStages[Math.min(activeIndex + 1, workflowStages.length - 1)];
+    setActiveStage(next);
+  }
+
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="min-w-0 space-y-4">
-        <section className="rounded-lg border border-white/10 bg-[#0d1117] p-4">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-end">
-            <div className="flex-1">
-              <label className="text-sm font-medium text-slate-300">输入想法</label>
-              <textarea
-                className="mt-2 min-h-32 w-full resize-y rounded-md border border-white/10 bg-black/30 p-3 text-sm leading-6 outline-none transition focus:border-teal-300/60"
-                value={form.rawIdea}
-                onChange={(event) => setForm((current) => ({ ...current, rawIdea: event.target.value }))}
-              />
+    <div className="min-w-0 space-y-5">
+      <ProgressStepper bundle={bundle} activeStage={activeStage} setActiveStage={setActiveStage} />
+
+      <section className="rounded-lg border border-stone-200 bg-white shadow-sm">
+        <div className="border-b border-stone-200 p-5">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+              <p className="text-sm text-stone-500">第 {activeIndex + 1} 步 / {workflowStages.length}</p>
+              <h2 className="mt-1 text-2xl font-semibold tracking-tight">{stageLabels[activeStage]}</h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-600">{stageDescriptions[activeStage]}</p>
             </div>
-            <div className="grid min-w-64 grid-cols-2 gap-3">
-              <Field label="总时长">
-                <input
-                  className={inputClass}
-                  type="number"
-                  min={15}
-                  max={90}
-                  value={form.targetDurationSeconds}
-                  onChange={(event) => setForm((current) => ({ ...current, targetDurationSeconds: Number(event.target.value) }))}
-                />
-              </Field>
-              <Field label="语言">
-                <input className={inputClass} value={form.language} onChange={(event) => setForm((current) => ({ ...current, language: event.target.value }))} />
-              </Field>
-              <Field label="比例">
-                <select className={inputClass} value={form.aspectRatio} onChange={(event) => setForm((current) => ({ ...current, aspectRatio: event.target.value }))}>
-                  {aspectRatios.map((ratio) => (
-                    <option key={ratio}>{ratio}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="视觉风格">
-                <select className={inputClass} value={form.visualStyle} onChange={(event) => setForm((current) => ({ ...current, visualStyle: event.target.value }))}>
-                  {visualStyles.map((style) => (
-                    <option key={style}>{style}</option>
-                  ))}
-                </select>
-              </Field>
-              <button className="col-span-2 flex h-11 items-center justify-center gap-2 rounded-md bg-teal-300 px-4 text-sm font-semibold text-slate-950 transition hover:bg-teal-200 disabled:cursor-not-allowed disabled:opacity-50" onClick={createJob} disabled={busy === "create-job"}>
-                {busy === "create-job" ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-                创建任务
+            <div className="flex flex-wrap gap-2">
+              <button className={secondaryButton} onClick={reload} disabled={Boolean(busy)}>
+                <RefreshCcw className="size-4" />
+                刷新
+              </button>
+              <button className={primaryButton} onClick={() => runStage(activeStage)} disabled={Boolean(busy)}>
+                {busy === activeStage ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
+                {activeRecord?.status === "success" ? "重新生成本步" : "生成本步结果"}
               </button>
             </div>
           </div>
-        </section>
+        </div>
 
-        {bundle ? (
-          <>
-            <section className="rounded-lg border border-white/10 bg-[#0d1117] p-4">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <p className="text-sm text-slate-400">当前任务</p>
-                  <h2 className="text-xl font-semibold">{bundle.job.rawIdea.slice(0, 54)}...</h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {completedCount}/{workflowStages.length} stages · {bundle.storageMode}
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button className={secondaryButton} onClick={runAll} disabled={Boolean(busy)}>
-                    <Play className="size-4" /> Run All
-                  </button>
-                  <button className={secondaryButton} onClick={() => void reload()} disabled={Boolean(busy)}>
-                    <RefreshCcw className="size-4" /> Reload
-                  </button>
-                </div>
-              </div>
-              <div className="mt-4 grid gap-2 md:grid-cols-4 xl:grid-cols-7">
-                {workflowStages.map((stage) => {
-                  const Icon = stageIcons[stage];
-                  const record = bundle.stages.find((item) => item.stage === stage);
-                  return (
-                    <button
-                      key={stage}
-                      onClick={() => setActiveStage(stage)}
-                      className={cn(
-                        "min-h-20 rounded-md border p-3 text-left transition",
-                        activeStage === stage ? "border-amber-300/60 bg-amber-300/10" : "border-white/10 bg-black/20 hover:border-white/20",
-                      )}
-                    >
-                      <Icon className="mb-2 size-4 text-amber-200" />
-                      <p className="text-sm font-medium">{stageLabels[stage]}</p>
-                      <StatusBadge status={record?.status ?? "pending"} />
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
+        <StepMainContent
+          bundle={bundle}
+          stage={activeStage}
+          record={activeRecord}
+          busy={busy}
+          runStage={runStage}
+          reload={reload}
+        />
 
-            <StagePanel bundle={bundle} stage={activeStage} record={activeRecord} busy={busy} runStage={runStage} reload={reload} />
-          </>
-        ) : (
-          <section className="rounded-lg border border-dashed border-white/15 bg-white/[0.02] p-10 text-center">
-            <Sparkles className="mx-auto size-8 text-teal-200" />
-            <h2 className="mt-3 text-lg font-semibold">先创建一个视频任务</h2>
-            <p className="mt-2 text-sm text-slate-400">创建后可以逐步生成内容理解、视频方案、脚本、Storyboard、关键帧和视频片段。</p>
-          </section>
-        )}
-      </div>
-
-      <aside className="min-w-0 rounded-lg border border-white/10 bg-[#0d1117] p-4">
-        <p className="text-sm font-semibold">结构化输出</p>
-        <p className="mt-1 text-xs text-slate-500">{activeRecord?.promptVersionId ?? "No prompt version yet"}</p>
-        <pre className="mt-4 max-h-[72vh] overflow-auto rounded-md border border-white/10 bg-black/30 p-3 text-xs leading-5 text-slate-300">
-          {asJson(activeRecord?.output ?? { status: "pending", stage: activeStage })}
-        </pre>
-      </aside>
+        <div className="flex flex-col gap-3 border-t border-stone-200 bg-stone-50 p-5 md:flex-row md:items-center md:justify-between">
+          <p className="text-sm text-stone-500">
+            已完成 {completedCount} / {workflowStages.length} 步。确认当前结果后再进入下一步，避免后面的镜头和视频 prompt 建在错误理解上。
+          </p>
+          <button className={primaryButton} disabled={activeRecord?.status !== "success" || activeIndex === workflowStages.length - 1} onClick={goNext}>
+            确认并进入下一步
+            <ArrowRight className="size-4" />
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
 
-function StagePanel(props: {
+function IdeaIntake({
+  form,
+  setForm,
+  createJob,
+  busy,
+}: {
+  form: WorkflowForm;
+  setForm: React.Dispatch<React.SetStateAction<WorkflowForm>>;
+  createJob: () => Promise<void>;
+  busy: boolean;
+}) {
+  return (
+    <section className="rounded-lg border border-stone-200 bg-white shadow-sm">
+      <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="p-6">
+          <p className="text-sm font-medium text-stone-500">开始一个新视频</p>
+          <h2 className="mt-2 text-3xl font-semibold tracking-tight">先输入想法，系统会从内容理解开始一步步生成</h2>
+          <textarea
+            className="mt-6 min-h-[320px] w-full resize-y rounded-md border border-stone-300 bg-white p-4 text-base leading-7 text-stone-900 outline-none transition focus:border-stone-900 focus:ring-4 focus:ring-stone-100"
+            value={form.rawIdea}
+            onChange={(event) => setForm((current) => ({ ...current, rawIdea: event.target.value }))}
+          />
+        </div>
+        <div className="border-t border-stone-200 bg-stone-50 p-6 xl:border-l xl:border-t-0">
+          <p className="text-sm font-semibold text-stone-800">参数</p>
+          <Field label="视频总时长">
+            <input
+              className={inputClass}
+              type="number"
+              min={15}
+              max={90}
+              value={form.targetDurationSeconds}
+              onChange={(event) => setForm((current) => ({ ...current, targetDurationSeconds: Number(event.target.value) }))}
+            />
+          </Field>
+          <Field label="视频比例">
+            <select className={inputClass} value={form.aspectRatio} onChange={(event) => setForm((current) => ({ ...current, aspectRatio: event.target.value }))}>
+              {aspectRatios.map((ratio) => (
+                <option key={ratio}>{ratio}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="视觉风格">
+            <select className={inputClass} value={form.visualStyle} onChange={(event) => setForm((current) => ({ ...current, visualStyle: event.target.value }))}>
+              {visualStyles.map((style) => (
+                <option key={style}>{style}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="视频语言">
+            <input className={inputClass} value={form.language} onChange={(event) => setForm((current) => ({ ...current, language: event.target.value }))} />
+          </Field>
+          <button className={cn(primaryButton, "mt-6 w-full justify-center")} onClick={createJob} disabled={busy}>
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+            创建任务并进入第 1 步
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ProgressStepper({
+  bundle,
+  activeStage,
+  setActiveStage,
+}: {
+  bundle: JobBundle;
+  activeStage: WorkflowStage;
+  setActiveStage: (stage: WorkflowStage) => void;
+}) {
+  return (
+    <section className="rounded-lg border border-stone-200 bg-white p-3 shadow-sm">
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-7">
+        {workflowStages.map((stage, index) => {
+          const record = bundle.stages.find((item) => item.stage === stage);
+          const Icon = stageIcons[stage];
+          const isActive = stage === activeStage;
+          return (
+            <button
+              key={stage}
+              className={cn(
+                "flex min-h-20 items-start gap-3 rounded-md border p-3 text-left transition",
+                isActive ? "border-stone-950 bg-stone-950 text-white" : "border-stone-200 bg-white hover:bg-stone-50",
+              )}
+              onClick={() => setActiveStage(stage)}
+            >
+              <div className={cn("grid size-7 shrink-0 place-items-center rounded-full", isActive ? "bg-white text-stone-950" : "bg-stone-100 text-stone-600")}>
+                {record?.status === "success" ? <CheckCircle2 className="size-4" /> : <Icon className="size-4" />}
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs opacity-70">Step {index + 1}</p>
+                <p className="mt-1 text-sm font-semibold leading-5">{stageLabels[stage]}</p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function StepMainContent({
+  bundle,
+  stage,
+  record,
+  busy,
+  runStage,
+  reload,
+}: {
   bundle: JobBundle;
   stage: WorkflowStage;
   record?: StageOutputRecord;
   busy: string | null;
   runStage: (stage: WorkflowStage) => Promise<void>;
-  reload: () => Promise<void> | null;
+  reload: () => Promise<void>;
 }) {
-  const { bundle, stage, record, busy, runStage, reload } = props;
-  const [draft, setDraft] = useState(asJson(record?.output ?? {}));
+  if (!record || record.status === "pending" || record.status === "running") {
+    return (
+      <div className="grid min-h-[420px] place-items-center p-8 text-center">
+        <div>
+          <Sparkles className="mx-auto size-9 text-stone-400" />
+          <h3 className="mt-4 text-xl font-semibold">这一页还没有生成结果</h3>
+          <p className="mt-2 max-w-md text-sm leading-6 text-stone-500">
+            点击“生成本步结果”，系统会调用当前 Prompt 和语言模型，生成可以查看和编辑的结构化结果。
+          </p>
+          <button className={cn(primaryButton, "mt-5")} onClick={() => runStage(stage)} disabled={Boolean(busy)}>
+            {busy === stage ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
+            生成本步结果
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (record.status === "error") {
+    return (
+      <div className="p-6">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-700">{record.error}</div>
+        <button className={cn(primaryButton, "mt-4")} onClick={() => runStage(stage)} disabled={Boolean(busy)}>
+          <RefreshCcw className="size-4" />
+          重试本步
+        </button>
+      </div>
+    );
+  }
+
+  if (stage === "scene_blocks") {
+    return <SceneBlockReview bundle={bundle} record={record} reload={reload} />;
+  }
+
+  if (stage === "keyframe_prompts") {
+    return <AssetGenerationReview bundle={bundle} type="keyframe" reload={reload} />;
+  }
+
+  if (stage === "video_prompts") {
+    return <AssetGenerationReview bundle={bundle} type="video" reload={reload} />;
+  }
+
+  return <StructuredResultEditor bundle={bundle} stage={stage} record={record} reload={reload} />;
+}
+
+function StructuredResultEditor({
+  bundle,
+  stage,
+  record,
+  reload,
+}: {
+  bundle: JobBundle;
+  stage: WorkflowStage;
+  record: StageOutputRecord;
+  reload: () => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(asJson(record.output));
   const [saveState, setSaveState] = useState<string | null>(null);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDraft(asJson(record?.output ?? {}));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [record?.updatedAt, record?.stage]);
+    setDraft(asJson(record.output));
+  }, [record.updatedAt, record.output]);
 
   async function saveEdit() {
     setSaveState("saving");
@@ -401,93 +565,93 @@ function StagePanel(props: {
   }
 
   return (
-    <section className="rounded-lg border border-white/10 bg-[#0d1117] p-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div className="p-5">
+      <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-sm text-slate-400">{getPromptTitle(stage)}</p>
-          <h3 className="text-lg font-semibold">{stageLabels[stage]}</h3>
+          <p className="text-sm font-semibold text-stone-900">本步骤结果</p>
+          <p className="text-sm text-stone-500">这是 AI 生成的结构化内容。你可以直接修改，保存后再确认进入下一步。</p>
         </div>
-        <div className="flex gap-2">
-          <button className={secondaryButton} onClick={() => runStage(stage)} disabled={Boolean(busy)}>
-            {busy === stage ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
-            生成/重试
-          </button>
-          <button className={secondaryButton} onClick={saveEdit}>
-            <Save className="size-4" /> 保存编辑
-          </button>
-        </div>
+        <button className={secondaryButton} onClick={saveEdit}>
+          <Save className="size-4" />
+          保存编辑
+        </button>
       </div>
-      {record?.status === "error" ? <div className="mt-3 rounded-md border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-100">{record.error}</div> : null}
-      {saveState ? <p className="mt-3 text-xs text-slate-400">{saveState}</p> : null}
-
-      <div className="mt-4 grid gap-4 2xl:grid-cols-[minmax(0,1fr)_420px]">
-        <textarea
-          className="min-h-[440px] w-full resize-y rounded-md border border-white/10 bg-black/30 p-3 font-mono text-xs leading-5 text-slate-200 outline-none focus:border-teal-300/60"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-        />
-        <StageSpecific bundle={bundle} stage={stage} reload={reload} />
-      </div>
-    </section>
+      {saveState ? <p className="mb-2 text-sm text-stone-500">{saveState}</p> : null}
+      <textarea
+        className="min-h-[560px] w-full resize-y rounded-md border border-stone-300 bg-stone-50 p-4 font-mono text-sm leading-6 text-stone-900 outline-none focus:border-stone-900 focus:bg-white focus:ring-4 focus:ring-stone-100"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+      />
+    </div>
   );
 }
 
-function StageSpecific({ bundle, stage, reload }: { bundle: JobBundle; stage: WorkflowStage; reload: () => Promise<void> | null }) {
-  if (stage === "shot_list" || stage === "scene_blocks") {
-    return (
-      <div className="space-y-3">
-        <p className="text-sm font-semibold">Storyboard</p>
-        {bundle.sceneBlocks.length === 0 ? <p className="text-sm text-slate-500">生成 Scene Blocks 后展示分组。</p> : null}
+function SceneBlockReview({ bundle, record, reload }: { bundle: JobBundle; record: StageOutputRecord; reload: () => Promise<void> }) {
+  const [showJson, setShowJson] = useState(false);
+  return (
+    <div className="p-5">
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-stone-900">Scene Block 分组结果</p>
+          <p className="text-sm text-stone-500">每个 block 是之后真正送去视频模型生成的单位；shot 只是规划单位。</p>
+        </div>
+        <button className={secondaryButton} onClick={() => setShowJson((value) => !value)}>
+          <FileJson className="size-4" />
+          {showJson ? "隐藏 JSON" : "查看 JSON"}
+        </button>
+      </div>
+
+      <div className="mt-5 grid gap-4">
         {bundle.sceneBlocks.map((block) => (
-          <div key={block.id} className="rounded-md border border-white/10 bg-black/20 p-3">
-            <div className="flex items-center justify-between">
-              <p className="font-mono text-sm text-amber-200">{block.id}</p>
-              <span className="text-xs text-slate-400">{block.durationSeconds}s</span>
+          <div key={block.id} className="rounded-lg border border-stone-200 bg-stone-50 p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <p className="font-mono text-sm text-stone-500">{block.id}</p>
+                <h3 className="mt-1 text-lg font-semibold">{block.blockSummary}</h3>
+              </div>
+              <span className="rounded-full bg-white px-3 py-1 text-sm font-medium text-stone-700">{block.durationSeconds}s</span>
             </div>
-            <p className="mt-2 text-sm text-slate-300">{block.blockSummary}</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {block.shotIds.map((id) => (
-                <span key={id} className="rounded bg-white/10 px-2 py-1 font-mono text-xs text-slate-300">
-                  {id}
+            <p className="mt-3 text-sm leading-6 text-stone-600">{block.visualContinuity}</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {block.shotIds.map((shotId) => (
+                <span key={shotId} className="rounded-md border border-stone-200 bg-white px-2 py-1 font-mono text-xs text-stone-600">
+                  {shotId}
                 </span>
               ))}
             </div>
           </div>
         ))}
       </div>
-    );
-  }
 
-  if (stage === "keyframe_prompts") {
-    return (
-      <div className="space-y-3">
-        <p className="text-sm font-semibold">关键帧生成</p>
-        {bundle.sceneBlocks.map((block) => (
-          <AssetCard key={block.id} block={block} type="keyframe" reload={reload} />
-        ))}
-      </div>
-    );
-  }
-
-  if (stage === "video_prompts") {
-    return (
-      <div className="space-y-3">
-        <p className="text-sm font-semibold">视频片段生成</p>
-        {bundle.sceneBlocks.map((block) => (
-          <AssetCard key={block.id} block={block} type="video" reload={reload} />
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-md border border-white/10 bg-black/20 p-4 text-sm leading-6 text-slate-400">
-      当前阶段支持直接编辑 JSON。保存后，下游阶段会使用编辑后的结构化结果。
+      {showJson ? <JsonLarge value={record.output} /> : null}
+      <button className={cn(secondaryButton, "mt-4")} onClick={reload}>
+        <RefreshCcw className="size-4" />
+        刷新分组
+      </button>
     </div>
   );
 }
 
-function AssetCard({ block, type, reload }: { block: JobBundle["sceneBlocks"][number]; type: "keyframe" | "video"; reload: () => Promise<void> | null }) {
+function AssetGenerationReview({ bundle, type, reload }: { bundle: JobBundle; type: "keyframe" | "video"; reload: () => Promise<void> }) {
+  const title = type === "keyframe" ? "关键帧预览" : "视频片段预览";
+  return (
+    <div className="p-5">
+      <div>
+        <p className="text-sm font-semibold text-stone-900">{title}</p>
+        <p className="mt-1 text-sm text-stone-500">
+          当前版本中图片和视频生成仍是 Mock，但 prompt 已经由语言模型生成并保存在任务里。
+        </p>
+      </div>
+      <div className="mt-5 grid gap-4 xl:grid-cols-2">
+        {bundle.sceneBlocks.map((block) => (
+          <AssetCard key={block.id} block={block} type={type} reload={reload} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AssetCard({ block, type, reload }: { block: JobBundle["sceneBlocks"][number]; type: "keyframe" | "video"; reload: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const url = type === "keyframe" ? block.keyframeImageUrl : block.videoUrl;
   async function generate() {
@@ -497,11 +661,12 @@ function AssetCard({ block, type, reload }: { block: JobBundle["sceneBlocks"][nu
     setBusy(false);
   }
   return (
-    <div className="rounded-md border border-white/10 bg-black/20 p-3">
-      <div className="flex items-center justify-between gap-3">
+    <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="font-mono text-sm text-teal-200">{block.id}</p>
-          <p className="text-xs text-slate-500">{block.durationSeconds}s · {block.videoModel}</p>
+          <p className="font-mono text-sm text-stone-500">{block.id}</p>
+          <h3 className="mt-1 font-semibold text-stone-900">{block.blockSummary}</h3>
+          <p className="mt-1 text-xs text-stone-500">{block.durationSeconds}s · {block.videoModel}</p>
         </div>
         <button className={secondaryButton} onClick={generate} disabled={busy}>
           {busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCcw className="size-4" />}
@@ -511,16 +676,16 @@ function AssetCard({ block, type, reload }: { block: JobBundle["sceneBlocks"][nu
       {url ? (
         type === "keyframe" ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={url} alt={`${block.id} keyframe`} className="mt-3 aspect-[9/16] max-h-80 w-full rounded-md border border-white/10 object-cover" />
+          <img src={url} alt={`${block.id} keyframe`} className="mt-4 aspect-[9/16] max-h-96 w-full rounded-md border border-stone-200 object-cover" />
         ) : (
-          <div className="mt-3 rounded-md border border-teal-300/20 bg-teal-300/10 p-4">
-            <Film className="size-6 text-teal-200" />
-            <p className="mt-2 text-sm font-medium">Mock video clip ready</p>
-            <p className="mt-1 break-all font-mono text-xs text-slate-400">{url}</p>
+          <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-4">
+            <Film className="size-6 text-emerald-700" />
+            <p className="mt-2 text-sm font-medium text-emerald-950">Mock video clip ready</p>
+            <p className="mt-1 break-all font-mono text-xs text-emerald-800">{url}</p>
           </div>
         )
       ) : (
-        <p className="mt-3 text-sm text-slate-500">等待生成。</p>
+        <p className="mt-4 rounded-md border border-dashed border-stone-300 bg-white p-4 text-sm text-stone-500">等待生成。</p>
       )}
     </div>
   );
@@ -536,8 +701,7 @@ function PromptManagement({ prompts, reload, setError }: { prompts: PromptVersio
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDraft(selected ?? null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.id]);
+  }, [selected]);
 
   async function savePrompt(status: PromptVersion["status"]) {
     if (!draft) return;
@@ -565,87 +729,122 @@ function PromptManagement({ prompts, reload, setError }: { prompts: PromptVersio
     }
   }
 
-  if (!draft) return <p className="text-sm text-slate-400">Prompt nodes are loading.</p>;
+  if (!draft) {
+    return <div className="rounded-lg border border-stone-200 bg-white p-6 text-sm text-stone-500 shadow-sm">Prompt nodes are loading.</div>;
+  }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)_360px]">
-      <aside className="rounded-lg border border-white/10 bg-[#0d1117] p-3">
-        <p className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-400">Prompt 节点</p>
+    <div className="grid min-w-0 gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
+      <aside className="rounded-lg border border-stone-200 bg-white p-3 shadow-sm">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-stone-400">Prompt 节点</p>
         <div className="space-y-2">
           {prompts.map((prompt) => (
             <button
               key={prompt.id}
-              className={cn("w-full rounded-md border p-3 text-left", selected?.id === prompt.id ? "border-teal-300/50 bg-teal-300/10" : "border-white/10 bg-black/20")}
+              className={cn("w-full rounded-md border p-3 text-left", selected?.id === prompt.id ? "border-stone-950 bg-stone-50" : "border-stone-200 bg-white hover:bg-stone-50")}
               onClick={() => setSelectedId(prompt.id)}
             >
-              <p className="text-sm font-medium">{getPromptTitle(prompt.promptId)}</p>
-              <p className="mt-1 font-mono text-xs text-slate-500">{prompt.id}</p>
+              <p className="text-sm font-medium text-stone-900">{getPromptTitle(prompt.promptId)}</p>
+              <p className="mt-1 font-mono text-xs text-stone-500">{prompt.id}</p>
               <StatusBadge status={prompt.status} />
             </button>
           ))}
         </div>
       </aside>
-      <section className="rounded-lg border border-white/10 bg-[#0d1117] p-4">
-        <div className="flex items-center justify-between gap-3">
+
+      <section className="min-w-0 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
-            <p className="text-sm text-slate-400">Prompt Editor</p>
-            <h2 className="text-lg font-semibold">{getPromptTitle(draft.promptId)}</h2>
+            <p className="text-sm text-stone-500">Prompt Management</p>
+            <h2 className="text-2xl font-semibold tracking-tight">{getPromptTitle(draft.promptId)}</h2>
           </div>
           <div className="flex gap-2">
             <button className={secondaryButton} onClick={() => savePrompt("draft")}>
-              <Save className="size-4" /> Draft
+              <Save className="size-4" />
+              保存 Draft
             </button>
-            <button className={secondaryButton} onClick={() => savePrompt("active")}>
-              <Sparkles className="size-4" /> Publish
+            <button className={primaryButton} onClick={() => savePrompt("active")}>
+              <Sparkles className="size-4" />
+              发布 Active
             </button>
           </div>
         </div>
+
         <Field label="System instruction">
-          <textarea className="min-h-32 w-full rounded-md border border-white/10 bg-black/30 p-3 text-sm outline-none focus:border-teal-300/60" value={draft.systemInstruction} onChange={(event) => setDraft({ ...draft, systemInstruction: event.target.value })} />
+          <textarea className={textareaClass} value={draft.systemInstruction} onChange={(event) => setDraft({ ...draft, systemInstruction: event.target.value })} />
         </Field>
         <Field label="User prompt template">
-          <textarea className="min-h-56 w-full rounded-md border border-white/10 bg-black/30 p-3 font-mono text-xs outline-none focus:border-teal-300/60" value={draft.userPromptTemplate} onChange={(event) => setDraft({ ...draft, userPromptTemplate: event.target.value })} />
+          <textarea className={cn(textareaClass, "min-h-56 font-mono text-sm")} value={draft.userPromptTemplate} onChange={(event) => setDraft({ ...draft, userPromptTemplate: event.target.value })} />
         </Field>
         <Field label="Change note">
           <input className={inputClass} value={draft.changeNote} onChange={(event) => setDraft({ ...draft, changeNote: event.target.value })} />
         </Field>
-      </section>
-      <aside className="rounded-lg border border-white/10 bg-[#0d1117] p-4">
-        <p className="text-sm font-semibold">变量与 Schema</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {draft.variables.map((variable) => (
-            <span key={variable} className="rounded bg-amber-300/10 px-2 py-1 font-mono text-xs text-amber-100">
-              {`{{${variable}}}`}
-            </span>
-          ))}
+
+        <div className="mt-5 grid gap-4 xl:grid-cols-2">
+          <div>
+            <p className="text-sm font-semibold text-stone-900">变量</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {draft.variables.map((variable) => (
+                <span key={variable} className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 font-mono text-xs text-amber-900">
+                  {`{{${variable}}}`}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-stone-900">测试区</p>
+            <button className={cn(secondaryButton, "mt-3")} onClick={testPromptNode}>
+              <Play className="size-4" />
+              测试 Prompt
+            </button>
+          </div>
         </div>
-        <pre className="mt-4 max-h-72 overflow-auto rounded-md border border-white/10 bg-black/30 p-3 text-xs text-slate-300">{asJson(draft.outputSchema)}</pre>
-        <button className={cn(secondaryButton, "mt-4 w-full justify-center")} onClick={testPromptNode}>
-          <Play className="size-4" /> 测试 Prompt
-        </button>
-        <pre className="mt-3 max-h-72 overflow-auto rounded-md border border-white/10 bg-black/30 p-3 text-xs text-slate-300">{asJson(testResult ?? { status: "not tested" })}</pre>
-      </aside>
+
+        <JsonLarge value={testResult ?? { status: "not tested" }} />
+      </section>
     </div>
+  );
+}
+
+function JsonLarge({ value }: { value: unknown }) {
+  return (
+    <pre className="mt-5 max-h-[520px] overflow-auto rounded-md border border-stone-200 bg-stone-50 p-4 font-mono text-sm leading-6 text-stone-800">
+      {asJson(value)}
+    </pre>
   );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="mt-3 block">
-      <span className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</span>
+    <label className="mt-4 block">
+      <span className="text-xs font-semibold uppercase tracking-wide text-stone-500">{label}</span>
       <div className="mt-1">{children}</div>
     </label>
   );
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const tone = status === "success" || status === "ready" || status === "active" ? "bg-teal-300/10 text-teal-100" : status === "error" ? "bg-red-300/10 text-red-100" : "bg-slate-300/10 text-slate-300";
-  return <span className={cn("mt-2 inline-flex rounded px-2 py-1 text-xs", tone)}>{status}</span>;
+  const tone =
+    status === "success" || status === "ready" || status === "active"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : status === "error"
+        ? "border-red-200 bg-red-50 text-red-700"
+        : "border-stone-200 bg-stone-50 text-stone-500";
+  return <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-xs", tone)}>{status}</span>;
 }
 
-function navButton(active: boolean) {
-  return cn("flex h-10 items-center justify-center gap-2 rounded-md border text-sm transition", active ? "border-teal-300/50 bg-teal-300/10 text-teal-100" : "border-white/10 bg-black/20 text-slate-300 hover:border-white/20");
+function topTab(active: boolean) {
+  return cn(
+    "inline-flex h-10 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
+    active ? "border-stone-950 bg-stone-950 text-white" : "border-stone-200 bg-white text-stone-700 hover:bg-stone-50",
+  );
 }
 
-const secondaryButton = "inline-flex h-10 items-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-3 text-sm font-medium text-slate-200 transition hover:border-white/20 hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-50";
-const inputClass = "h-10 w-full rounded-md border border-white/10 bg-black/30 px-3 text-sm outline-none focus:border-teal-300/60";
+const primaryButton =
+  "inline-flex h-10 items-center gap-2 rounded-md bg-stone-950 px-4 text-sm font-semibold text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-40";
+const secondaryButton =
+  "inline-flex h-10 items-center gap-2 rounded-md border border-stone-300 bg-white px-3 text-sm font-medium text-stone-800 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40";
+const inputClass =
+  "h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm text-stone-900 outline-none focus:border-stone-900 focus:ring-4 focus:ring-stone-100";
+const textareaClass =
+  "min-h-36 w-full resize-y rounded-md border border-stone-300 bg-white p-3 text-sm leading-6 text-stone-900 outline-none focus:border-stone-900 focus:ring-4 focus:ring-stone-100";
