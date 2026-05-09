@@ -60,6 +60,7 @@ export async function generateStructuredOutput(
       target_duration_seconds: job.targetDurationSeconds,
       aspect_ratio: job.aspectRatio,
       visual_style: job.visualStyle,
+      decision_status: "needs_user_selection",
       core_idea: "用一个办公室里的真实业务场景，把“追模型”与“找重复劳动”形成对比。",
       creative_expansion: [
         "开头用一堆模型名称和工具页面制造轻微焦虑感。",
@@ -78,7 +79,7 @@ export async function generateStructuredOutput(
           why_it_works: "把抽象观点转成可见的流程问题。",
         },
       ],
-      selected_concept: "老板的工具焦虑转向重复工作清单",
+      selected_concept: "",
       key_visual_moments: ["工具页面快速切换", "白板上圈出重复工作", "合上电脑转向业务清单"],
       character_and_setting: "一位传统企业老板坐在普通办公室，桌上有电脑、笔记本和业务流程白板。",
       narrative_structure: [

@@ -48,6 +48,7 @@ export const videoPlanSchema = z.object({
   target_duration_seconds: z.number(),
   aspect_ratio: z.string(),
   visual_style: z.string(),
+  decision_status: z.enum(["needs_user_selection", "approved"]).default("needs_user_selection"),
   core_idea: z.string(),
   creative_expansion: z.array(z.string()),
   concept_variations: z.array(
@@ -57,7 +58,7 @@ export const videoPlanSchema = z.object({
       why_it_works: z.string(),
     }),
   ),
-  selected_concept: z.string(),
+  selected_concept: z.string().default(""),
   key_visual_moments: z.array(z.string()),
   character_and_setting: z.string(),
   narrative_structure: z.array(

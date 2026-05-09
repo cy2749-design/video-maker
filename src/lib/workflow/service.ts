@@ -27,6 +27,7 @@ import {
   type ShotListOutput,
   type ShotRecord,
   type StageOutputRecord,
+  type VideoPlan,
   type VideoPromptListOutput,
   type WorkflowStage,
 } from "./types";
@@ -41,6 +42,15 @@ function assertStageInput(stage: WorkflowStage, previous: Record<string, unknown
   if (missing.length > 0) {
     throw new Error(`Missing previous stage output: ${missing.join(", ")}`);
   }
+  if (index > workflowStages.indexOf("video_plan") && !isApprovedVideoPlan(previous.video_plan)) {
+    throw new Error("Creative plan needs a user-selected concept before downstream stages can run.");
+  }
+}
+
+function isApprovedVideoPlan(value: unknown) {
+  if (!value || typeof value !== "object") return false;
+  const plan = value as Partial<VideoPlan>;
+  return plan.decision_status === "approved" && typeof plan.selected_concept === "string" && plan.selected_concept.trim().length > 0;
 }
 
 export async function runWorkflowStage(jobId: string, stage: WorkflowStage) {
@@ -120,10 +130,11 @@ export async function runWorkflowStage(jobId: string, stage: WorkflowStage) {
     }
 
     const nextIndex = workflowStages.indexOf(stage) + 1;
+    const awaitingUserSelection = stage === "video_plan" && !isApprovedVideoPlan(output);
     await updateJob({
       ...bundle.job,
-      status: nextIndex >= workflowStages.length ? "ready" : "running",
-      currentStage: workflowStages[nextIndex] ?? stage,
+      status: awaitingUserSelection ? "draft" : nextIndex >= workflowStages.length ? "ready" : "running",
+      currentStage: awaitingUserSelection ? "video_plan" : workflowStages[nextIndex] ?? stage,
       updatedAt: nowIso(),
     });
 
@@ -164,6 +175,9 @@ export async function saveEditedStage(jobId: string, stage: WorkflowStage, outpu
 
   if (stage === "shot_list") await replaceShots(jobId, toShotRecords(jobId, parsed as ShotListOutput));
   if (stage === "scene_blocks") await replaceSceneBlocks(jobId, toSceneBlockRecords(jobId, parsed as SceneBlockListOutput));
+  if (stage === "video_plan" && isApprovedVideoPlan(parsed)) {
+    await updateJob({ ...bundle.job, status: "running", currentStage: "script", updatedAt: nowIso() });
+  }
   return record;
 }
 
@@ -373,6 +387,7 @@ function normalizeStageOutput(
   if (stage === "video_plan") {
     return {
       ...output,
+      decision_status: "needs_user_selection",
       core_idea: stringOr(output.core_idea, stringOr(output.video_concept, "把用户想法扩展成可拍摄的视频创意。")),
       creative_expansion: Array.isArray(output.creative_expansion)
         ? output.creative_expansion.map(String)
@@ -393,7 +408,7 @@ function normalizeStageOutput(
               why_it_works: "它保留原始想法，同时给后续脚本和镜头明确抓手。",
             },
           ],
-      selected_concept: stringOr(output.selected_concept, stringOr(output.video_concept, "主创意方向")),
+      selected_concept: "",
       key_visual_moments: Array.isArray(output.key_visual_moments) ? output.key_visual_moments.map(String) : [],
       character_and_setting: stringOr(output.character_and_setting, "根据用户想法设置主要角色、场景和关键道具。"),
       target_duration_seconds:

@@ -1,7 +1,7 @@
 import { nowIso } from "@/lib/utils";
 import { stageSchemas, type PromptVersion, type WorkflowStage } from "./types";
 
-export const defaultPromptVersionSuffix = "v5";
+export const defaultPromptVersionSuffix = "v6";
 
 type PromptNode = {
   promptId: PromptVersion["promptId"];
@@ -75,10 +75,10 @@ This is the first visible planning step. Turn the extracted idea into a clear, f
 
 Do:
 - Expand the premise into a playable situation with character behavior, visual progression, escalation, and a memorable payoff.
-- Provide 2-3 meaningfully different concept variations, then select the strongest one and explain the practical reason.
+- Provide 2-3 meaningfully different concept variations for the user to choose from.
 - Define stable continuity anchors: main subject, setting, props, wardrobe/appearance style, lighting, and recurring visual motifs.
 - Name key visual moments that must appear later; make them specific enough to become shots.
-- Divide the selected concept into hook, development, and ending with durations that add up to target_duration_seconds.
+- Divide the primary recommended direction into hook, development, and ending with durations that add up to target_duration_seconds, but do not mark it approved.
 - Make visual_direction and audio_direction concrete: camera mood, pacing, sound texture, narration style, and whether the piece uses dialogue, voiceover, or ambient sound.
 
 Do not:
@@ -86,6 +86,7 @@ Do not:
 - Give a generic "AI efficiency" or "brand story" plan when the raw idea contains a more specific angle.
 - Create exact shot ids or video-generation prompts yet.
 - Normalize strange premises into ordinary corporate videos; stylize them when needed.
+- Choose for the user. Leave selected_concept as an empty string and decision_status as "needs_user_selection".
 
 ${sharedOutputRules}
 `.trim(),
@@ -102,7 +103,8 @@ Return this JSON shape:
   "target_duration_seconds": 45,
   "aspect_ratio": "9:16",
   "visual_style": "现实短视频",
-  "core_idea": "selected concept in one strong, filmable sentence",
+  "decision_status": "needs_user_selection",
+  "core_idea": "recommended direction in one strong, filmable sentence, not yet user-approved",
   "creative_expansion": [
     "specific expansion of the premise into a visible situation",
     "specific escalation or contrast that makes the middle worth watching",
@@ -115,7 +117,7 @@ Return this JSON shape:
       "why_it_works": "why this is clear, entertaining, or visually generative"
     }
   ],
-  "selected_concept": "which variation to use and why",
+  "selected_concept": "",
   "key_visual_moments": ["must-show visual moment 1", "must-show visual moment 2"],
   "character_and_setting": "main subject, environment, props, look, lighting, and continuity anchors",
   "narrative_structure": [
@@ -390,7 +392,7 @@ export function createDefaultPromptVersions(): PromptVersion[] {
     userPromptTemplate: node.userPromptTemplate,
     variables: node.variables,
     outputSchema: node.outputSchema,
-    changeNote: "Creative-plan V5 prompt contract",
+    changeNote: "Creative-plan V6 user-selection contract",
     createdAt: nowIso(),
     createdBy: "system",
   }));

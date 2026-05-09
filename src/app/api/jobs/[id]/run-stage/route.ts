@@ -10,6 +10,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ error: "Invalid workflow stage" }, { status: 400 });
   }
 
-  const record = await runWorkflowStage(id, stage);
-  return NextResponse.json({ stage: record });
+  try {
+    const record = await runWorkflowStage(id, stage);
+    return NextResponse.json({ stage: record });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Workflow stage failed" }, { status: 400 });
+  }
 }

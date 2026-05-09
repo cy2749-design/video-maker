@@ -28,6 +28,7 @@ import {
   type JobBundle,
   type PromptVersion,
   type StageOutputRecord,
+  type VideoPlan,
   type WorkflowStage,
 } from "@/lib/workflow/types";
 import { getPromptTitle } from "@/lib/workflow/prompts";
@@ -88,6 +89,14 @@ function asJson(value: unknown) {
   return JSON.stringify(value, null, 2);
 }
 
+function isVideoPlan(value: unknown): value is VideoPlan {
+  return Boolean(value && typeof value === "object" && Array.isArray((value as VideoPlan).concept_variations));
+}
+
+function isApprovedVideoPlan(value: unknown) {
+  return isVideoPlan(value) && value.decision_status === "approved" && value.selected_concept.trim().length > 0;
+}
+
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,
@@ -129,7 +138,11 @@ export function VideoWorkflowApp() {
     setBundle(next);
     if (!keepStage) {
       const firstPending =
-        visibleWorkflowStages.find((stage) => !next.stages.some((item) => item.stage === stage && item.status === "success")) ??
+        visibleWorkflowStages.find((stage) => {
+          const record = next.stages.find((item) => item.stage === stage);
+          if (stage === "video_plan" && record?.status === "success") return !isApprovedVideoPlan(record.output);
+          return record?.status !== "success";
+        }) ??
         "video_prompts";
       setActiveStage(firstPending);
     }
@@ -367,7 +380,12 @@ function WorkflowWizard(props: {
   const { form, setForm, bundle, activeStage, setActiveStage, busy, createJob, runStage, reload } = props;
   const activeRecord = bundle?.stages.find((stage) => stage.stage === activeStage);
   const activeIndex = Math.max(0, visibleWorkflowStages.findIndex((stage) => stage === activeStage));
-  const completedCount = bundle?.stages.filter((stage) => visibleStageSet.has(stage.stage) && stage.status === "success").length ?? 0;
+  const completedCount =
+    bundle?.stages.filter((stage) => visibleStageSet.has(stage.stage) && stage.status === "success" && (stage.stage !== "video_plan" || isApprovedVideoPlan(stage.output))).length ?? 0;
+  const canAdvance =
+    activeRecord?.status === "success" &&
+    activeIndex !== visibleWorkflowStages.length - 1 &&
+    (activeStage !== "video_plan" || isApprovedVideoPlan(activeRecord.output));
 
   if (!bundle) {
     return <IdeaIntake form={form} setForm={setForm} createJob={createJob} busy={busy === "create-job"} />;
@@ -414,9 +432,11 @@ function WorkflowWizard(props: {
 
         <div className="flex flex-col gap-3 border-t border-stone-200 bg-stone-50 p-5 md:flex-row md:items-center md:justify-between">
           <p className="text-sm text-stone-500">
-            已完成 {completedCount} / {visibleWorkflowStages.length} 步。确认当前结果后再进入下一步，避免后面的镜头和视频 prompt 建在错误方案上。
+            {activeStage === "video_plan" && activeRecord?.status === "success" && !isApprovedVideoPlan(activeRecord.output)
+              ? "先在上方选择一个创意方向并确认，下游脚本、镜头和视频 prompt 才会使用它。"
+              : `已完成 ${completedCount} / ${visibleWorkflowStages.length} 步。确认当前结果后再进入下一步，避免后面的镜头和视频 prompt 建在错误方案上。`}
           </p>
-          <button className={primaryButton} disabled={activeRecord?.status !== "success" || activeIndex === visibleWorkflowStages.length - 1} onClick={goNext}>
+          <button className={primaryButton} disabled={!canAdvance} onClick={goNext}>
             确认并进入下一步
             <ArrowRight className="size-4" />
           </button>
@@ -579,6 +599,18 @@ function StepMainContent({
     );
   }
 
+  if (stage === "video_plan") {
+    return <VideoPlanReview bundle={bundle} record={record} reload={reload} />;
+  }
+
+  if (stage === "script") {
+    return <ScriptReview record={record} />;
+  }
+
+  if (stage === "shot_list") {
+    return <ShotListReview record={record} />;
+  }
+
   if (stage === "scene_blocks") {
     return <SceneBlockReview bundle={bundle} record={record} reload={reload} />;
   }
@@ -592,6 +624,216 @@ function StepMainContent({
   }
 
   return <StructuredResultEditor bundle={bundle} stage={stage} record={record} reload={reload} />;
+}
+
+function VideoPlanReview({ bundle, record, reload }: { bundle: JobBundle; record: StageOutputRecord; reload: () => Promise<void> }) {
+  const plan = isVideoPlan(record.output) ? record.output : null;
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [showJson, setShowJson] = useState(false);
+  const [saveState, setSaveState] = useState<string | null>(null);
+
+  if (!plan) return <StructuredResultEditor bundle={bundle} stage="video_plan" record={record} reload={reload} />;
+
+  const approved = isApprovedVideoPlan(plan);
+
+  async function approveConcept() {
+    const variation = plan?.concept_variations[selectedIndex];
+    if (!plan || !variation) return;
+    setSaveState("saving");
+    const approvedPlan: VideoPlan = {
+      ...plan,
+      decision_status: "approved",
+      core_idea: variation.description,
+      selected_concept: `${variation.name}：${variation.description}`,
+    };
+    try {
+      await api(`/api/jobs/${bundle.job.id}/stage-output`, {
+        method: "PATCH",
+        body: JSON.stringify({ stage: "video_plan", output: approvedPlan }),
+      });
+      await reload();
+      setSaveState("saved");
+    } catch (err) {
+      setSaveState(err instanceof Error ? err.message : "Save failed");
+    }
+  }
+
+  return (
+    <div className="space-y-5 p-5">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-stone-900">选择创意方向</p>
+          <p className="mt-1 text-sm leading-6 text-stone-500">
+            模型只负责提出候选。你确认其中一个后，脚本、镜头、Scene Block 和后续 prompt 才会继续使用这个方案。
+          </p>
+        </div>
+        <button className={secondaryButton} onClick={() => setShowJson((value) => !value)}>
+          <FileJson className="size-4" />
+          {showJson ? "隐藏 JSON" : "查看 JSON"}
+        </button>
+      </div>
+
+      <div className="rounded-md border border-stone-200 bg-stone-50 p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">推荐摘要</p>
+        <h3 className="mt-2 text-xl font-semibold text-stone-950">{plan.video_title}</h3>
+        <p className="mt-2 text-sm leading-6 text-stone-700">{plan.core_idea}</p>
+      </div>
+
+      <div className="grid gap-3 xl:grid-cols-3">
+        {plan.concept_variations.map((variation, index) => {
+          const active = approved ? plan.selected_concept.includes(variation.name) : selectedIndex === index;
+          return (
+            <button
+              key={`${variation.name}-${index}`}
+              className={cn(
+                "min-h-56 rounded-md border p-4 text-left transition",
+                active ? "border-stone-950 bg-stone-950 text-white" : "border-stone-200 bg-white hover:bg-stone-50",
+              )}
+              onClick={() => setSelectedIndex(index)}
+              disabled={approved}
+            >
+              <p className="text-xs font-semibold uppercase tracking-wide opacity-60">方案 {index + 1}</p>
+              <h3 className="mt-2 text-lg font-semibold leading-6">{variation.name}</h3>
+              <p className="mt-3 text-sm leading-6 opacity-85">{variation.description}</p>
+              <p className="mt-4 text-sm leading-6 opacity-70">{variation.why_it_works}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <SummaryBlock title="剧情结构" items={plan.narrative_structure.map((part) => `${part.part} / ${part.duration_seconds}s：${part.goal}`)} />
+        <SummaryBlock title="关键画面" items={plan.key_visual_moments} />
+        <SummaryBlock title="视觉方向" items={[plan.visual_direction]} />
+        <SummaryBlock title="生成注意事项" items={plan.generation_notes} />
+      </div>
+
+      {saveState ? <p className="text-sm text-stone-500">{saveState}</p> : null}
+      <button className={primaryButton} onClick={approveConcept} disabled={approved}>
+        <CheckCircle2 className="size-4" />
+        {approved ? "已确认创意方向" : "确认选中方案"}
+      </button>
+
+      {showJson ? <JsonLarge value={plan} /> : null}
+    </div>
+  );
+}
+
+function SummaryBlock({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="rounded-md border border-stone-200 bg-white p-4">
+      <p className="text-sm font-semibold text-stone-900">{title}</p>
+      <div className="mt-3 space-y-2">
+        {items.length === 0 ? (
+          <p className="text-sm text-stone-500">暂无内容</p>
+        ) : (
+          items.map((item, index) => (
+            <p key={`${title}-${index}`} className="text-sm leading-6 text-stone-600">
+              {item}
+            </p>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ScriptReview({ record }: { record: StageOutputRecord }) {
+  const output = record.output as {
+    title?: string;
+    target_duration_seconds?: number;
+    script_sections?: Array<{
+      section_id: string;
+      section_type: string;
+      duration_seconds: number;
+      narration_intent: string;
+      spoken_content: string;
+      visual_intent: string;
+    }>;
+  };
+  const [showJson, setShowJson] = useState(false);
+  const sections = Array.isArray(output.script_sections) ? output.script_sections : [];
+
+  return (
+    <div className="space-y-4 p-5">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-stone-900">{output.title ?? "脚本"}</p>
+          <p className="mt-1 text-sm text-stone-500">按叙事段落查看，每段会继续拆成镜头。</p>
+        </div>
+        <button className={secondaryButton} onClick={() => setShowJson((value) => !value)}>
+          <FileJson className="size-4" />
+          {showJson ? "隐藏 JSON" : "查看 JSON"}
+        </button>
+      </div>
+      <div className="grid gap-3">
+        {sections.map((section) => (
+          <div key={section.section_id} className="rounded-md border border-stone-200 bg-white p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-xs text-stone-500">{section.section_id}</span>
+              <span className="rounded-full border border-stone-200 bg-stone-50 px-2 py-0.5 text-xs text-stone-600">{section.section_type}</span>
+              <span className="text-xs text-stone-500">{section.duration_seconds}s</span>
+            </div>
+            <p className="mt-3 text-base leading-7 text-stone-950">{section.spoken_content}</p>
+            <div className="mt-4 grid gap-3 xl:grid-cols-2">
+              <p className="text-sm leading-6 text-stone-600">{section.narration_intent}</p>
+              <p className="text-sm leading-6 text-stone-600">{section.visual_intent}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+      {showJson ? <JsonLarge value={record.output} /> : null}
+    </div>
+  );
+}
+
+function ShotListReview({ record }: { record: StageOutputRecord }) {
+  const output = record.output as {
+    shots?: Array<{
+      shot_id: string;
+      section_id: string;
+      duration_seconds: number;
+      spoken_content_ref: string;
+      visual_description: string;
+      camera: string;
+      motion: string;
+      visual_role: string;
+      composition_note: string;
+    }>;
+  };
+  const [showJson, setShowJson] = useState(false);
+  const shots = Array.isArray(output.shots) ? output.shots : [];
+
+  return (
+    <div className="space-y-4 p-5">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-stone-900">镜头表</p>
+          <p className="mt-1 text-sm text-stone-500">每个镜头是规划单元，下一步会把相邻镜头合并成可生成的视频片段。</p>
+        </div>
+        <button className={secondaryButton} onClick={() => setShowJson((value) => !value)}>
+          <FileJson className="size-4" />
+          {showJson ? "隐藏 JSON" : "查看 JSON"}
+        </button>
+      </div>
+      <div className="overflow-hidden rounded-md border border-stone-200 bg-white">
+        {shots.map((shot) => (
+          <div key={shot.shot_id} className="grid gap-3 border-b border-stone-200 p-4 last:border-b-0 xl:grid-cols-[160px_minmax(0,1fr)]">
+            <div>
+              <p className="font-mono text-sm text-stone-900">{shot.shot_id}</p>
+              <p className="mt-1 text-xs text-stone-500">{shot.section_id} / {shot.duration_seconds}s</p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm leading-6 text-stone-900">{shot.visual_description}</p>
+              <p className="text-sm leading-6 text-stone-600">{shot.camera}；{shot.motion}</p>
+              <p className="text-xs leading-5 text-stone-500">{shot.composition_note}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+      {showJson ? <JsonLarge value={record.output} /> : null}
+    </div>
+  );
 }
 
 function StructuredResultEditor({
