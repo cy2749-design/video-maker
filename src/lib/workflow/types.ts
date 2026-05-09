@@ -48,7 +48,18 @@ export const videoPlanSchema = z.object({
   target_duration_seconds: z.number(),
   aspect_ratio: z.string(),
   visual_style: z.string(),
-  video_concept: z.string(),
+  core_idea: z.string(),
+  creative_expansion: z.array(z.string()),
+  concept_variations: z.array(
+    z.object({
+      name: z.string(),
+      description: z.string(),
+      why_it_works: z.string(),
+    }),
+  ),
+  selected_concept: z.string(),
+  key_visual_moments: z.array(z.string()),
+  character_and_setting: z.string(),
   narrative_structure: z.array(
     z.object({
       part: z.string(),
@@ -58,6 +69,7 @@ export const videoPlanSchema = z.object({
   ),
   visual_direction: z.string(),
   audio_direction: z.string(),
+  generation_notes: z.array(z.string()),
 });
 
 export const scriptSchema = z.object({

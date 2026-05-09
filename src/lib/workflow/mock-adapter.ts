@@ -60,7 +60,27 @@ export async function generateStructuredOutput(
       target_duration_seconds: job.targetDurationSeconds,
       aspect_ratio: job.aspectRatio,
       visual_style: job.visualStyle,
-      video_concept: "用一个办公室里的真实业务场景，把“追模型”与“找重复劳动”形成对比。",
+      core_idea: "用一个办公室里的真实业务场景，把“追模型”与“找重复劳动”形成对比。",
+      creative_expansion: [
+        "开头用一堆模型名称和工具页面制造轻微焦虑感。",
+        "中段把镜头切到真实业务动作：重复录入、整理会议纪要、客服回复、表格归档。",
+        "结尾把“模型清单”换成“重复工作清单”，形成记忆点。",
+      ],
+      concept_variations: [
+        {
+          name: "老板的工具焦虑",
+          description: "老板在电脑前快速切换 AI 工具页面，越看越迷茫。",
+          why_it_works: "能直接表现错误起点，也容易拍成真实短视频。",
+        },
+        {
+          name: "办公室重复劳动显影",
+          description: "员工一天内反复做相似动作，画面用重复节奏强化低效感。",
+          why_it_works: "把抽象观点转成可见的流程问题。",
+        },
+      ],
+      selected_concept: "老板的工具焦虑转向重复工作清单",
+      key_visual_moments: ["工具页面快速切换", "白板上圈出重复工作", "合上电脑转向业务清单"],
+      character_and_setting: "一位传统企业老板坐在普通办公室，桌上有电脑、笔记本和业务流程白板。",
       narrative_structure: [
         { part: "hook", goal: "指出常见误区：一上来问哪个模型最好。", duration_seconds: parts.hook },
         {
@@ -72,6 +92,7 @@ export async function generateStructuredOutput(
       ],
       visual_direction: `${job.visualStyle}，真实办公室、会议桌、白板、电脑和笔记本，画面干净可读。`,
       audio_direction: "自然中文旁白，节奏稳定，语气稍微批判但不夸张，保留轻微办公室环境声。",
+      generation_notes: ["避免做成 AI 培训课广告。", "不要出现可读品牌名或真实工具 logo。", "办公室画面要普通可信，不要过度科技感。"],
     } satisfies VideoPlan;
   }
 

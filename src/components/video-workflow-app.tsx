@@ -42,6 +42,8 @@ type WorkflowForm = {
 
 type JobListItem = JobBundle["job"];
 type ViewMode = "workflow" | "prompts";
+const visibleWorkflowStages = workflowStages.filter((stage) => stage !== "content_understanding");
+const visibleStageSet = new Set<WorkflowStage>(visibleWorkflowStages);
 
 const initialForm: WorkflowForm = {
   rawIdea:
@@ -53,8 +55,8 @@ const initialForm: WorkflowForm = {
 };
 
 const stageLabels: Record<WorkflowStage, string> = {
-  content_understanding: "内容理解",
-  video_plan: "视频方案",
+  content_understanding: "内部理解",
+  video_plan: "创意方案",
   script: "脚本",
   shot_list: "镜头规划",
   scene_blocks: "Scene Block 分组",
@@ -63,8 +65,8 @@ const stageLabels: Record<WorkflowStage, string> = {
 };
 
 const stageDescriptions: Record<WorkflowStage, string> = {
-  content_understanding: "把你的想法整理成核心观点、受众、语气和必须保留的信息点。",
-  video_plan: "确认整条视频怎么讲、时长怎么分配、画面和声音方向是什么。",
+  content_understanding: "内部步骤，不在用户流程中展示。",
+  video_plan: "把原始想法扩展成可拍的核心创意、关键画面、角色场景和节奏方案。",
   script: "把视频方案拆成可以给视频模型理解的分段表达。",
   shot_list: "把脚本拆成具体镜头。镜头只用于规划，不直接生成视频。",
   scene_blocks: "把连续镜头合并成 5-15 秒的视频生成单位。",
@@ -100,7 +102,7 @@ export function VideoWorkflowApp() {
   const [view, setView] = useState<ViewMode>("workflow");
   const [jobs, setJobs] = useState<JobListItem[]>([]);
   const [bundle, setBundle] = useState<JobBundle | null>(null);
-  const [activeStage, setActiveStage] = useState<WorkflowStage>("content_understanding");
+  const [activeStage, setActiveStage] = useState<WorkflowStage>("video_plan");
   const [prompts, setPrompts] = useState<PromptVersion[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -116,7 +118,7 @@ export function VideoWorkflowApp() {
     setBundle(next);
     if (!keepStage) {
       const firstPending =
-        workflowStages.find((stage) => !next.stages.some((item) => item.stage === stage && item.status === "success")) ??
+        visibleWorkflowStages.find((stage) => !next.stages.some((item) => item.stage === stage && item.status === "success")) ??
         "video_prompts";
       setActiveStage(firstPending);
     }
@@ -353,15 +355,15 @@ function WorkflowWizard(props: {
 }) {
   const { form, setForm, bundle, activeStage, setActiveStage, busy, createJob, runStage, reload } = props;
   const activeRecord = bundle?.stages.find((stage) => stage.stage === activeStage);
-  const activeIndex = workflowStages.indexOf(activeStage);
-  const completedCount = bundle?.stages.filter((stage) => stage.status === "success").length ?? 0;
+  const activeIndex = Math.max(0, visibleWorkflowStages.findIndex((stage) => stage === activeStage));
+  const completedCount = bundle?.stages.filter((stage) => visibleStageSet.has(stage.stage) && stage.status === "success").length ?? 0;
 
   if (!bundle) {
     return <IdeaIntake form={form} setForm={setForm} createJob={createJob} busy={busy === "create-job"} />;
   }
 
   function goNext() {
-    const next = workflowStages[Math.min(activeIndex + 1, workflowStages.length - 1)];
+    const next = visibleWorkflowStages[Math.min(activeIndex + 1, visibleWorkflowStages.length - 1)];
     setActiveStage(next);
   }
 
@@ -373,7 +375,7 @@ function WorkflowWizard(props: {
         <div className="border-b border-stone-200 p-5">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div>
-              <p className="text-sm text-stone-500">第 {activeIndex + 1} 步 / {workflowStages.length}</p>
+              <p className="text-sm text-stone-500">第 {activeIndex + 1} 步 / {visibleWorkflowStages.length}</p>
               <h2 className="mt-1 text-2xl font-semibold tracking-tight">{stageLabels[activeStage]}</h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-600">{stageDescriptions[activeStage]}</p>
             </div>
@@ -401,9 +403,9 @@ function WorkflowWizard(props: {
 
         <div className="flex flex-col gap-3 border-t border-stone-200 bg-stone-50 p-5 md:flex-row md:items-center md:justify-between">
           <p className="text-sm text-stone-500">
-            已完成 {completedCount} / {workflowStages.length} 步。确认当前结果后再进入下一步，避免后面的镜头和视频 prompt 建在错误理解上。
+            已完成 {completedCount} / {visibleWorkflowStages.length} 步。确认当前结果后再进入下一步，避免后面的镜头和视频 prompt 建在错误方案上。
           </p>
-          <button className={primaryButton} disabled={activeRecord?.status !== "success" || activeIndex === workflowStages.length - 1} onClick={goNext}>
+          <button className={primaryButton} disabled={activeRecord?.status !== "success" || activeIndex === visibleWorkflowStages.length - 1} onClick={goNext}>
             确认并进入下一步
             <ArrowRight className="size-4" />
           </button>
@@ -429,7 +431,7 @@ function IdeaIntake({
       <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="p-6">
           <p className="text-sm font-medium text-stone-500">开始一个新视频</p>
-          <h2 className="mt-2 text-3xl font-semibold tracking-tight">先输入想法，系统会从内容理解开始一步步生成</h2>
+          <h2 className="mt-2 text-3xl font-semibold tracking-tight">先输入想法，系统会直接生成可确认的创意方案</h2>
           <textarea
             className="mt-6 min-h-[320px] w-full resize-y rounded-md border border-stone-300 bg-white p-4 text-base leading-7 text-stone-900 outline-none transition focus:border-stone-900 focus:ring-4 focus:ring-stone-100"
             value={form.rawIdea}
@@ -473,7 +475,7 @@ function IdeaIntake({
           </Field>
           <button className={cn(primaryButton, "mt-6 w-full justify-center")} onClick={createJob} disabled={busy}>
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-            创建任务并进入第 1 步
+            创建任务并进入创意方案
           </button>
         </div>
       </div>
@@ -493,7 +495,7 @@ function ProgressStepper({
   return (
     <section className="rounded-lg border border-stone-200 bg-white p-3 shadow-sm">
       <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-7">
-        {workflowStages.map((stage, index) => {
+        {visibleWorkflowStages.map((stage, index) => {
           const record = bundle.stages.find((item) => item.stage === stage);
           const Icon = stageIcons[stage];
           const isActive = stage === activeStage;

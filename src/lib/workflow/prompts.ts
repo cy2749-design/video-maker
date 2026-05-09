@@ -1,7 +1,7 @@
 import { nowIso } from "@/lib/utils";
 import { stageSchemas, type PromptVersion, type WorkflowStage } from "./types";
 
-export const defaultPromptVersionSuffix = "v2";
+export const defaultPromptVersionSuffix = "v3";
 
 type PromptNode = {
   promptId: PromptVersion["promptId"];
@@ -27,18 +27,17 @@ export const promptNodes: PromptNode[] = [
     title: "Content Understanding Prompt",
     systemInstruction: `
 You are the content strategist for an automated video-generation workflow.
-Your job is to turn a rough idea into a precise creative brief for downstream planning.
+This is an internal, hidden planning step. Your job is to extract only the creative material needed by the next visible step.
 
 Do:
-- Identify the one core message the video must communicate.
-- Separate intent, target viewer, tone, key points, and creative risks.
-- Keep the result concise enough for a user to review and edit.
-- Flag risks that would make the video feel off-brand, misleading, too generic, or visually hard to generate.
+- Identify the concrete premise, central action, mood, must-keep details, and implied constraints.
+- Keep it short and useful for creative expansion.
+- Preserve unusual, playful, absurd, or humorous ideas instead of normalizing them into generic categories.
 
 Do not:
-- Write a script yet.
-- Add new claims that are not implied by the user's input.
-- Turn the result into course-ad, influencer, or software-demo language unless the user asked for that.
+- Produce audience labels, content taxonomy, or generic summaries unless they directly help the creative plan.
+- Write a script or shot list.
+- Judge the idea as realistic or unrealistic; treat impossible ideas as stylized video concepts.
 
 ${sharedOutputRules}
 `.trim(),
@@ -51,13 +50,13 @@ Video settings:
 
 Return this JSON shape:
 {
-  "raw_input_summary": "short summary of the user's idea",
-  "core_message": "the single most important message",
-  "content_intent": "观点表达 / 故事表达 / 教程解释 / 情绪表达 / 信息总结",
-  "target_viewer": "who this is for",
-  "tone": "voice and attitude",
-  "key_points": ["must-keep point 1", "must-keep point 2"],
-  "creative_risk": ["risk 1", "risk 2"]
+  "raw_input_summary": "one-sentence premise only",
+  "core_message": "the main idea or gag to preserve",
+  "content_intent": "creative premise, not a generic category",
+  "target_viewer": "leave empty unless the user explicitly named an audience",
+  "tone": "the intended emotional flavor or comedic attitude",
+  "key_points": ["specific details that must survive into the plan"],
+  "creative_risk": []
 }
 `.trim(),
     variables: ["rawIdea", "settings"],
@@ -65,26 +64,29 @@ Return this JSON shape:
   },
   {
     promptId: "video_plan",
-    title: "Video Plan Prompt",
+    title: "Creative Video Plan Prompt",
     systemInstruction: `
-You are a short-form video creative director.
-Turn the approved content understanding into an overall video plan that can guide script and visual planning.
+You are a short-form video creative director and concept developer.
+This is the first user-visible planning step. Do not repeat obvious labels. Expand the user's raw idea into a concrete, filmable creative concept.
 
 Do:
-- Create a clear concept that fits the chosen duration, aspect ratio, style, and language.
-- Divide the video into hook, development, and ending, with durations adding up to target_duration_seconds.
-- Make visual_direction concrete enough for later shot planning.
-- Make audio_direction describe narration/dialogue, pacing, ambience, and emotional temperature.
+- Turn the premise into a more interesting playable idea: situation, character behavior, escalation, visual jokes, and ending payoff.
+- Provide 2-3 concept variations, then select one direction and explain why.
+- Name the key visual moments that later script and shots must include.
+- Define character/setting concretely enough that image and video prompts can preserve continuity.
+- Divide the selected concept into hook, development, and ending, with durations adding up to target_duration_seconds.
+- Make visual_direction and audio_direction specific and usable, not generic.
 
 Do not:
-- Create shot-by-shot details yet.
-- Overload the plan with too many ideas.
-- Use vague phrases like "high quality visuals" unless tied to a concrete scene or visual behavior.
+- Output target_viewer, content_intent, raw summary, or risk labels.
+- Give a shallow one-sentence concept and move on.
+- Create exact shot list yet; that happens later.
+- Mention unsafe real driving if the premise involves animals, children, or impossible action. Treat it as staged, stylized, toy-like, CG, or controlled comedic video.
 
 ${sharedOutputRules}
 `.trim(),
     userPromptTemplate: `
-Approved content understanding:
+Internal creative extraction:
 {{contentUnderstanding}}
 
 Video settings:
@@ -96,14 +98,30 @@ Return this JSON shape:
   "target_duration_seconds": 45,
   "aspect_ratio": "9:16",
   "visual_style": "现实短视频",
-  "video_concept": "how the video communicates the idea",
+  "core_idea": "the selected core creative idea in one strong sentence",
+  "creative_expansion": [
+    "specific expansion of the premise",
+    "specific comedic/visual escalation",
+    "specific ending payoff or memorable beat"
+  ],
+  "concept_variations": [
+    {
+      "name": "concept option name",
+      "description": "what happens in this version",
+      "why_it_works": "why this is fun, clear, or visually generative"
+    }
+  ],
+  "selected_concept": "which variation to use and why",
+  "key_visual_moments": ["must-show visual moment 1", "must-show visual moment 2"],
+  "character_and_setting": "main subject, environment, props, continuity anchors",
   "narrative_structure": [
     {"part": "hook", "goal": "what the opening must accomplish", "duration_seconds": 5},
     {"part": "development", "goal": "what the middle develops", "duration_seconds": 30},
     {"part": "ending", "goal": "what the ending leaves behind", "duration_seconds": 10}
   ],
   "visual_direction": "overall visual approach",
-  "audio_direction": "voice, sound, rhythm, ambience"
+  "audio_direction": "voice, sound, rhythm, ambience",
+  "generation_notes": ["constraints and notes for later image/video prompts"]
 }
 `.trim(),
     variables: ["contentUnderstanding", "settings"],
@@ -359,7 +377,7 @@ export function createDefaultPromptVersions(): PromptVersion[] {
     userPromptTemplate: node.userPromptTemplate,
     variables: node.variables,
     outputSchema: node.outputSchema,
-    changeNote: "Production V2 prompt contract",
+    changeNote: "Creative-plan V3 prompt contract",
     createdAt: nowIso(),
     createdBy: "system",
   }));

@@ -44,10 +44,16 @@ function assertStageInput(stage: WorkflowStage, previous: Record<string, unknown
 }
 
 export async function runWorkflowStage(jobId: string, stage: WorkflowStage) {
-  const bundle = await getJobBundle(jobId);
+  let bundle = await getJobBundle(jobId);
   if (!bundle) throw new Error("Job not found");
 
-  const previous = previousMap(bundle.stages);
+  let previous = previousMap(bundle.stages);
+  if (stage === "video_plan" && !previous.content_understanding) {
+    await runWorkflowStage(jobId, "content_understanding");
+    bundle = await getJobBundle(jobId);
+    if (!bundle) throw new Error("Job not found");
+    previous = previousMap(bundle.stages);
+  }
   assertStageInput(stage, previous);
 
   const prompt = await getActivePrompt(stage);
@@ -367,10 +373,34 @@ function normalizeStageOutput(
   if (stage === "video_plan") {
     return {
       ...output,
+      core_idea: stringOr(output.core_idea, stringOr(output.video_concept, "把用户想法扩展成可拍摄的视频创意。")),
+      creative_expansion: Array.isArray(output.creative_expansion)
+        ? output.creative_expansion.map(String)
+        : ["补充更具体的视觉玩法、情节推进和记忆点。"],
+      concept_variations: Array.isArray(output.concept_variations)
+        ? output.concept_variations.map((variation, index) => {
+            const item = variation as Record<string, unknown>;
+            return {
+              name: stringOr(item.name, `创意方向 ${index + 1}`),
+              description: stringOr(item.description, "一个可执行的视频创意方向。"),
+              why_it_works: stringOr(item.why_it_works, "这个方向能让原始想法更可视化。"),
+            };
+          })
+        : [
+            {
+              name: "主创意方向",
+              description: stringOr(output.video_concept, "把用户想法扩展成可拍摄的视频创意。"),
+              why_it_works: "它保留原始想法，同时给后续脚本和镜头明确抓手。",
+            },
+          ],
+      selected_concept: stringOr(output.selected_concept, stringOr(output.video_concept, "主创意方向")),
+      key_visual_moments: Array.isArray(output.key_visual_moments) ? output.key_visual_moments.map(String) : [],
+      character_and_setting: stringOr(output.character_and_setting, "根据用户想法设置主要角色、场景和关键道具。"),
       target_duration_seconds:
         typeof output.target_duration_seconds === "number" ? output.target_duration_seconds : job.targetDurationSeconds,
       aspect_ratio: stringOr(output.aspect_ratio, job.aspectRatio),
       visual_style: stringOr(output.visual_style, job.visualStyle),
+      generation_notes: Array.isArray(output.generation_notes) ? output.generation_notes.map(String) : [],
     };
   }
 
